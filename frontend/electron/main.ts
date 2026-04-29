@@ -57,7 +57,9 @@ function setOverlayBounds(panelState: OverlayPanelState) {
     Math.max(320, workArea.height - OVERLAY_MARGIN * 2),
   );
 
-  const nextX = Math.round(workArea.x + workArea.width - width - OVERLAY_MARGIN);
+  const nextX = Math.round(
+    workArea.x + workArea.width - width - OVERLAY_MARGIN,
+  );
   const nextY = Math.round(workArea.y + OVERLAY_MARGIN);
 
   overlayWin.setBounds({ x: nextX, y: nextY, width, height });
@@ -122,9 +124,11 @@ function createOverlayWindow() {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
   const workArea = display.workArea;
-  const x = Math.round(workArea.x + workArea.width - OVERLAY_WIDTH - OVERLAY_MARGIN);
+  const x = Math.round(
+    workArea.x + workArea.width - OVERLAY_WIDTH - OVERLAY_MARGIN,
+  );
   const y = Math.round(workArea.y + OVERLAY_MARGIN);
-   overlayWin.setPosition(x, y);
+  overlayWin.setPosition(x, y);
 
   if (VITE_DEV_SERVER_URL) {
     overlayWin.loadURL(`${VITE_DEV_SERVER_URL}#overlay`);
