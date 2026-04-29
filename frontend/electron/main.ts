@@ -37,11 +37,12 @@ let overlayWin: BrowserWindow | null;
 
 type OverlayPanelState = "compact" | "input" | "expanded";
 
-const OVERLAY_WIDTH = 720;
+const OVERLAY_WIDTH = 520;
+const OVERLAY_MARGIN = 20;
 const OVERLAY_HEIGHT_BY_STATE: Record<OverlayPanelState, number> = {
-  compact: 140,
-  input: 240,
-  expanded: 640,
+  compact: 300,
+  input: 460,
+  expanded: 920,
 };
 
 function setOverlayBounds(panelState: OverlayPanelState) {
@@ -51,17 +52,13 @@ function setOverlayBounds(panelState: OverlayPanelState) {
   const workArea = display.workArea;
 
   const width = OVERLAY_WIDTH;
-  const height = OVERLAY_HEIGHT_BY_STATE[panelState];
+  const height = Math.min(
+    OVERLAY_HEIGHT_BY_STATE[panelState],
+    Math.max(320, workArea.height - OVERLAY_MARGIN * 2),
+  );
 
-  const current = overlayWin.getBounds();
-  const nextX = Math.max(
-    workArea.x,
-    Math.min(current.x, workArea.x + workArea.width - width),
-  );
-  const nextY = Math.max(
-    workArea.y,
-    Math.min(current.y, workArea.y + workArea.height - height),
-  );
+  const nextX = Math.round(workArea.x + workArea.width - width - OVERLAY_MARGIN);
+  const nextY = Math.round(workArea.y + OVERLAY_MARGIN);
 
   overlayWin.setBounds({ x: nextX, y: nextY, width, height });
 }
@@ -81,7 +78,6 @@ function createMainWindow() {
   win.loadFile("index.html");
 
   // Open DevTools automatically
-  win.webContents.openDevTools();
   mainWin = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     width: 1120,
@@ -122,13 +118,13 @@ function createOverlayWindow() {
   overlayWin.setAlwaysOnTop(true, "screen-saver");
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
-  // Start in a sensible position (top center of the active display).
+  // Start at top-right of the active display.
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
   const workArea = display.workArea;
-  const x = Math.round(workArea.x + (workArea.width - OVERLAY_WIDTH) / 2);
-  const y = Math.round(workArea.y + 72);
-  overlayWin.setPosition(x, y);
+  const x = Math.round(workArea.x + workArea.width - OVERLAY_WIDTH - OVERLAY_MARGIN);
+  const y = Math.round(workArea.y + OVERLAY_MARGIN);
+   overlayWin.setPosition(x, y);
 
   if (VITE_DEV_SERVER_URL) {
     overlayWin.loadURL(`${VITE_DEV_SERVER_URL}#overlay`);
@@ -162,8 +158,19 @@ app.whenReady().then(() => {
 
   mainWin?.show();
 
-  globalShortcut.register("CommandOrControl+Shift+Space", () => {
-    toggleOverlay();
+  // globalShortcut.register("CommandOrControl+Shift+Space", () => {
+  //   toggleOverlay();
+  // });
+  globalShortcut.register("Shift+Space", () => {
+    if (!overlayWin) return;
+
+    if (!overlayWin.isVisible()) {
+      overlayWin.show();
+      overlayWin.focus();
+    }
+
+    // Tell the renderer to toggle recording
+    overlayWin.webContents.send("overlay:start-recording");
   });
 
   ipcMain.handle("overlay:toggle", () => {

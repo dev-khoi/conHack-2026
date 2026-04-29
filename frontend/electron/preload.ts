@@ -21,4 +21,9 @@ contextBridge.exposeInMainWorld('overlay', {
   captureScreenshotBase64() {
     return ipcRenderer.invoke('overlay:capture-screenshot') as Promise<string | null>
   },
+  onStartRecording(callback: () => void) {
+    const listener = () => callback()
+    ipcRenderer.on('overlay:start-recording', listener)
+    return () => ipcRenderer.removeListener('overlay:start-recording', listener)
+  },
 })

@@ -16,6 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         redirect_uri: window.location.origin,
         ...(auth0Audience ? { audience: auth0Audience } : {}),
       }}>
+        
       <App />
     </Auth0Provider>
   </React.StrictMode>,

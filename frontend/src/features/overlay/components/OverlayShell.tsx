@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { pickRecordingMimeType } from "@/features/voice/voice-recorder";
 
 type PanelState = "compact" | "input" | "expanded";
 
@@ -24,17 +25,6 @@ type RouterPlan = {
   tool_graph: RouterGraphStep[];
 };
 
-type SpeechRecognitionLike = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: unknown) => void) | null;
-  onerror: ((event: unknown) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
 export function OverlayShell() {
   const [panelState, setPanelState] = React.useState<PanelState>("compact");
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -42,13 +32,24 @@ export function OverlayShell() {
   const [command, setCommand] = React.useState("");
   const [streamText, setStreamText] = React.useState("");
   const [finalResult, setFinalResult] = React.useState<unknown>(null);
+  const [asrText, setAsrText] = React.useState("");
   const [similarity, setSimilarity] = React.useState<any>(null);
   const [runError, setRunError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
-  const [screenshotCaptured, setScreenshotCaptured] = React.useState<boolean | null>(null);
+  const [recordingStatus, setRecordingStatus] = React.useState<
+    "idle" | "recording" | "uploading"
+  >("idle");
+  const [screenshotCaptured, setScreenshotCaptured] = React.useState<
+    boolean | null
+  >(null);
   const [planPreview, setPlanPreview] = React.useState<RouterPlan | null>(null);
-  const recorderRef = React.useRef<SpeechRecognitionLike | null>(null);
+
+  const recorderRef = React.useRef<MediaRecorder | null>(null);
+  const chunksRef = React.useRef<BlobPart[]>([]);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const stopTimerRef = React.useRef<number | null>(null);
+  const blobTypeRef = React.useRef<string>("audio/webm");
 
   const backendBaseUrl =
     import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
@@ -71,7 +72,9 @@ export function OverlayShell() {
           window.overlay.getClipboardText(),
           window.overlay.captureScreenshotBase64(),
         ]);
-        setScreenshotCaptured(Boolean(screenshotBase64 && screenshotBase64.trim()));
+        setScreenshotCaptured(
+          Boolean(screenshotBase64 && screenshotBase64.trim()),
+        );
         const planRes = await fetch(`${backendBaseUrl}/router/plan`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -122,7 +125,6 @@ export function OverlayShell() {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
-          // Parse SSE blocks separated by blank lines.
           while (true) {
             const idx = buffer.indexOf("\n\n");
             if (idx === -1) break;
@@ -154,7 +156,6 @@ export function OverlayShell() {
               const result = isRecord(evt.result) ? evt.result : null;
               if (result && "final_output" in result)
                 setFinalResult(result.final_output);
-              // show similarity card if present
               setSimilarity(
                 result && "similarity" in result ? result.similarity : null,
               );
@@ -178,61 +179,143 @@ export function OverlayShell() {
     await runVoiceFlow(command);
   }, [command, runVoiceFlow]);
 
-  const startRecording = React.useCallback(() => {
-    const W = window as Window & {
-      webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-      SpeechRecognition?: new () => SpeechRecognitionLike;
-    };
-    const Ctor = W.SpeechRecognition || W.webkitSpeechRecognition;
-    if (!Ctor) {
-      setRunError("SpeechRecognition is not available in this environment.");
+  const clearRecordingResources = React.useCallback(() => {
+    if (stopTimerRef.current !== null) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) {
+        track.stop();
+      }
+      streamRef.current = null;
+    }
+    recorderRef.current = null;
+    chunksRef.current = [];
+  }, []);
+
+  const uploadAndRun = React.useCallback(
+    async (audioBlob: Blob, blobType: string) => {
+      setRecordingStatus("uploading");
+      setRunError(null);
+      try {
+        const form = new FormData();
+        const filename = blobType.includes("wav") ? "voice.wav" : "voice.webm";
+        form.append("file", audioBlob, filename);
+
+        const res = await fetch(`${backendBaseUrl}/asr/transcribe`, {
+          method: "POST",
+          body: form,
+        });
+        const payload = (await res.json()) as { text?: string; detail?: string };
+        if (!res.ok) {
+          throw new Error(payload.detail || `HTTP ${res.status}`);
+        }
+
+        const transcript = (payload.text || "").trim();
+        setAsrText(transcript);
+        setCommand(transcript);
+        if (transcript) {
+          await runVoiceFlow(transcript);
+        }
+      } catch (e: unknown) {
+        setRunError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setRecordingStatus("idle");
+      }
+    },
+    [backendBaseUrl, runVoiceFlow],
+  );
+
+  const startRecording = React.useCallback(async () => {
+    if (isRecording || recordingStatus === "uploading") return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRunError("Audio recording is not supported in this environment.");
       return;
     }
 
     setRunError(null);
-    const rec = new Ctor();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = "en-US";
+    setCommand("");
+    setAsrText("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
 
-    let transcript = "";
-    rec.onresult = (evt: unknown) => {
-      const e = evt as {
-        results?: ArrayLike<ArrayLike<{ transcript?: string }>>;
-      };
-      const results = e.results;
-      if (!results) return;
-      const last = results[results.length - 1];
-      if (!last || !last[0]) return;
-      const piece = String(last[0].transcript || "");
-      transcript = `${transcript} ${piece}`.trim();
-      setCommand(transcript);
-    };
-    rec.onerror = () => {
-      setRunError("Voice capture failed.");
+      const { mediaRecorderMimeType, blobType } = pickRecordingMimeType();
+      const options = mediaRecorderMimeType
+        ? { mimeType: mediaRecorderMimeType }
+        : undefined;
+      const recorder = new MediaRecorder(stream, options);
+      recorderRef.current = recorder;
+      blobTypeRef.current = blobType;
+      chunksRef.current = [];
+
+      recorder.addEventListener("dataavailable", (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      });
+
+      recorder.start(250);
+      setIsRecording(true);
+      setRecordingStatus("recording");
+
+      stopTimerRef.current = window.setTimeout(() => {
+        void stopRecording();
+      }, 60_000);
+    } catch (e: unknown) {
+      setRunError(e instanceof Error ? e.message : String(e));
       setIsRecording(false);
-    };
-    rec.onend = () => {
+      setRecordingStatus("idle");
+      clearRecordingResources();
+    }
+  }, [clearRecordingResources, isRecording, recordingStatus]);
+
+  const stopRecording = React.useCallback(async () => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      clearRecordingResources();
       setIsRecording(false);
-      recorderRef.current = null;
-      if (transcript.trim()) {
-        void runVoiceFlow(transcript);
-      }
+      setRecordingStatus("idle");
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      recorder.addEventListener(
+        "stop",
+        () => {
+          resolve();
+        },
+        { once: true },
+      );
+      recorder.stop();
+    });
+
+    setIsRecording(false);
+    const audioBlob = new Blob(chunksRef.current, { type: blobTypeRef.current });
+    clearRecordingResources();
+
+    if (audioBlob.size < 1024) {
+      setRunError("No audio captured. Hold the key a bit longer, then try again.");
+      setRecordingStatus("idle");
+      return;
+    }
+
+    await uploadAndRun(audioBlob, blobTypeRef.current);
+  }, [clearRecordingResources, uploadAndRun]);
+
+  React.useEffect(() => {
+    return () => {
+      clearRecordingResources();
     };
+  }, [clearRecordingResources]);
 
-    recorderRef.current = rec;
-    setIsRecording(true);
-    rec.start();
-  }, [runVoiceFlow]);
-
-  const stopRecording = React.useCallback(() => {
-    recorderRef.current?.stop();
-  }, []);
-
+  // Sync panel size with main process
   React.useEffect(() => {
     window.overlay.setPanelState(panelState);
   }, [panelState]);
 
+  // Focus input when panel opens
   React.useEffect(() => {
     if (panelState === "input" || panelState === "expanded") {
       inputRef.current?.focus();
@@ -240,18 +323,14 @@ export function OverlayShell() {
     }
   }, [panelState]);
 
+  // Keyboard shortcuts
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        if (panelState === "compact") {
-          window.overlay.hide();
-          return;
-        }
-        setPanelState("compact");
+        window.overlay.hide();
         return;
       }
-
       if (e.key === "Enter") {
         if (panelState === "input") setPanelState("expanded");
       }
@@ -260,6 +339,20 @@ export function OverlayShell() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [panelState]);
+
+  // Toggle recording when triggered by global shortcut via main process
+  React.useEffect(() => {
+    const unsubscribe = window.overlay.onStartRecording(() => {
+      if (isRunning) return;
+      if (recordingStatus === "uploading") return;
+      if (isRecording) {
+        void stopRecording();
+        return;
+      }
+      void startRecording();
+    });
+    return unsubscribe;
+  }, [isRecording, isRunning, recordingStatus, startRecording, stopRecording]);
 
   return (
     <div className="h-full w-full overflow-hidden">
@@ -280,14 +373,14 @@ export function OverlayShell() {
             </Badge>
           </button>
 
-          <Badge variant="outline" className="h-6 [-webkit-app-region:no-drag]">
-            Ctrl+Shift+Space
-          </Badge>
+            <Badge variant="outline" className="h-6 [-webkit-app-region:no-drag]">
+              Shift+Space
+            </Badge>
         </header>
 
         <Separator />
 
-        <section className="relative px-4 pb-4">
+        <section className="relative h-[calc(100%-61px)] overflow-y-auto px-4 pb-4">
           <div
             className={
               "transition-all duration-200 ease-out " +
@@ -366,7 +459,12 @@ export function OverlayShell() {
                   <div className="text-sm text-destructive">{runError}</div>
                 ) : null}
                 <div className="rounded-lg border bg-background/40 p-3 text-xs text-muted-foreground">
-                  screenshot captured: {screenshotCaptured === null ? "unknown" : screenshotCaptured ? "yes" : "no"}
+                  screenshot captured:{" "}
+                  {screenshotCaptured === null
+                    ? "unknown"
+                    : screenshotCaptured
+                      ? "yes"
+                      : "no"}
                 </div>
                 {planPreview ? (
                   <div className="rounded-lg border bg-background/40 p-3">
@@ -414,14 +512,45 @@ export function OverlayShell() {
                 ? "opacity-100 translate-y-0"
                 : "opacity-0 translate-y-1 pointer-events-none h-0 overflow-hidden")
             }>
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-2 w-full justify-start"
-              onClick={() => setPanelState("input")}>
-              <span className="font-medium">Search / Ask</span>
-              <span className="ml-2 text-muted-foreground">Click to type</span>
-            </Button>
+            <Card className="mt-2 border bg-background/50">
+              <CardContent className="space-y-3 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Voice controls</div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={recordingStatus === "recording" ? "default" : "outline"}>
+                      {recordingStatus}
+                    </Badge>
+                    <Badge variant="outline">Shift+Space</Badge>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => void startRecording()}
+                    disabled={isRunning || isRecording || recordingStatus === "uploading"}
+                  >
+                    Voice
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => void stopRecording()}
+                    disabled={!isRecording}
+                  >
+                    Stop & Transcribe
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Press <span className="font-medium">Shift+Space</span> to toggle recording.
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-sm font-medium">Transcript</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {asrText || "No transcript yet. Record then transcribe."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </section>
       </Card>
