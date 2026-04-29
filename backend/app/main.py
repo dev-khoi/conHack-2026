@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+import os
+
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.routers import asr, execution_engine, rag_memory, skill_compiler
+
+load_dotenv()
+
+
+def _parse_allowed_origins(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [v.strip() for v in raw.split(",") if v.strip()]
+
+
+app = FastAPI(title="AURA Backend", version="0.1.0")
+
+allowed_origins = _parse_allowed_origins(os.getenv("BACKEND_ALLOWED_ORIGINS"))
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+app.include_router(asr.router, prefix="/asr", tags=["asr"])
+app.include_router(skill_compiler.router, prefix="/skill", tags=["skill"])
+app.include_router(execution_engine.router, prefix="/execute", tags=["execute"])
+app.include_router(rag_memory.router, prefix="/memory", tags=["memory"])
