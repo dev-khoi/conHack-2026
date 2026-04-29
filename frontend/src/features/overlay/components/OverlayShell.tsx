@@ -46,6 +46,8 @@ export function OverlayShell() {
   const [runError, setRunError] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
+  const [screenshotCaptured, setScreenshotCaptured] = React.useState<boolean | null>(null);
+  const [planPreview, setPlanPreview] = React.useState<RouterPlan | null>(null);
   const recorderRef = React.useRef<SpeechRecognitionLike | null>(null);
 
   const backendBaseUrl =
@@ -61,6 +63,7 @@ export function OverlayShell() {
       setStreamText("");
       setFinalResult(null);
       setSimilarity(null);
+      setPlanPreview(null);
       setPanelState("expanded");
 
       try {
@@ -68,7 +71,7 @@ export function OverlayShell() {
           window.overlay.getClipboardText(),
           window.overlay.captureScreenshotBase64(),
         ]);
-
+        setScreenshotCaptured(Boolean(screenshotBase64 && screenshotBase64.trim()));
         const planRes = await fetch(`${backendBaseUrl}/router/plan`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -88,6 +91,7 @@ export function OverlayShell() {
         }
 
         const plan = (await planRes.json()) as RouterPlan;
+        setPlanPreview(plan);
 
         const res = await fetch(`${backendBaseUrl}/execute/graph`, {
           method: "POST",
@@ -357,9 +361,20 @@ export function OverlayShell() {
               <CardHeader className="py-4">
                 <CardTitle className="text-sm">Result</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
                 {runError ? (
                   <div className="text-sm text-destructive">{runError}</div>
+                ) : null}
+                <div className="rounded-lg border bg-background/40 p-3 text-xs text-muted-foreground">
+                  screenshot captured: {screenshotCaptured === null ? "unknown" : screenshotCaptured ? "yes" : "no"}
+                </div>
+                {planPreview ? (
+                  <div className="rounded-lg border bg-background/40 p-3">
+                    <div className="text-sm font-medium">Planned Graph</div>
+                    <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {JSON.stringify(planPreview, null, 2)}
+                    </pre>
+                  </div>
                 ) : null}
                 <div className="rounded-lg border bg-background/40 p-3">
                   <div className="text-sm font-medium">Stream</div>
