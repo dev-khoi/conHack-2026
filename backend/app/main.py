@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import asr, execution_engine, llm, rag_memory, skill_compiler
+from app.routers import asr, auth, execution_engine, llm, rag_memory, skill_compiler
 
 load_dotenv()
 
@@ -20,14 +20,22 @@ def _parse_allowed_origins(raw: str | None) -> list[str]:
 app = FastAPI(title="AURA Backend", version="0.1.0")
 
 allowed_origins = _parse_allowed_origins(os.getenv("BACKEND_ALLOWED_ORIGINS"))
-if allowed_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+
+# If CORS isn't configured explicitly, default to local dev origins.
+# This prevents browser preflight (OPTIONS) failures when calling the API from Vite.
+if not allowed_origins:
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -36,6 +44,7 @@ def health() -> dict[str, str]:
 
 
 app.include_router(asr.router, prefix="/asr", tags=["asr"])
+app.include_router(auth.router, prefix='/auth', tags=['auth'])
 app.include_router(skill_compiler.router, prefix="/skill", tags=["skill"])
 app.include_router(execution_engine.router, prefix="/execute", tags=["execute"])
 app.include_router(rag_memory.router, prefix="/memory", tags=["memory"])

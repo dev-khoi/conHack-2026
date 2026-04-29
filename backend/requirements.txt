@@ -5,3 +5,5 @@ python-multipart>=0.0.9
 faster-whisper>=1.0.3
 av>=12.3.0
 openai>=1.51.0
+pymongo>=4.10.1
+PyJWT[crypto]>=2.9.0
