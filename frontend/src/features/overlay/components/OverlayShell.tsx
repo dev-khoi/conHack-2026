@@ -8,9 +8,101 @@ import { Separator } from '@/components/ui/separator'
 
 type PanelState = 'compact' | 'input' | 'expanded'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 export function OverlayShell() {
   const [panelState, setPanelState] = React.useState<PanelState>('compact')
   const inputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const [command, setCommand] = React.useState('')
+  const [streamText, setStreamText] = React.useState('')
+  const [finalResult, setFinalResult] = React.useState<unknown>(null)
+  const [similarity, setSimilarity] = React.useState<any>(null)
+  const [runError, setRunError] = React.useState<string | null>(null)
+  const [isRunning, setIsRunning] = React.useState(false)
+
+  const backendBaseUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000'
+
+  const runExecute = React.useCallback(async () => {
+    const text = command.trim()
+    if (!text) return
+
+    setIsRunning(true)
+    setRunError(null)
+    setStreamText('')
+    setFinalResult(null)
+    setSimilarity(null)
+    setPanelState('expanded')
+
+    try {
+      const res = await fetch(`${backendBaseUrl}/execute/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          skill_name: 'summarize-and-store',
+          payload: { text },
+        }),
+      })
+
+      if (!res.ok || !res.body) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // Parse SSE blocks separated by blank lines.
+        while (true) {
+          const idx = buffer.indexOf('\n\n')
+          if (idx === -1) break
+          const chunk = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 2)
+
+          const line = chunk
+            .split('\n')
+            .map((l) => l.trim())
+            .find((l) => l.startsWith('data:'))
+
+          if (!line) continue
+          const jsonText = line.slice('data:'.length).trim()
+          if (!jsonText) continue
+
+           let evt: unknown
+           try {
+             evt = JSON.parse(jsonText) as unknown
+           } catch {
+             continue
+           }
+
+           if (!isRecord(evt) || typeof evt.type !== 'string') continue
+
+           if (evt.type === 'delta') {
+             const delta = typeof evt.delta === 'string' ? evt.delta : ''
+             if (delta) setStreamText((t) => t + delta)
+           } else if (evt.type === 'final') {
+             const result = isRecord(evt.result) ? evt.result : null
+             if (result && 'final_output' in result) setFinalResult(result.final_output)
+             // show similarity card if present
+             setSimilarity(result && 'similarity' in result ? result.similarity : null)
+           }
+         }
+       }
+    } catch (e: unknown) {
+      setRunError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setIsRunning(false)
+    }
+  }, [backendBaseUrl, command])
 
   React.useEffect(() => {
     window.overlay.setPanelState(panelState)
@@ -82,7 +174,15 @@ export function OverlayShell() {
                     ref={inputRef}
                     className="h-10 bg-background/40"
                     placeholder="Type a command or question..."
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
                     onFocus={() => setPanelState((s) => (s === 'compact' ? 'input' : s))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        void runExecute()
+                      }
+                    }}
                   />
                 </div>
                 <Button
@@ -91,6 +191,9 @@ export function OverlayShell() {
                   onClick={() => setPanelState(panelState === 'expanded' ? 'input' : 'expanded')}
                 >
                   {panelState === 'expanded' ? 'Collapse' : 'Expand'}
+                </Button>
+                <Button size="sm" onClick={() => void runExecute()} disabled={isRunning || !command.trim()}>
+                  {isRunning ? 'Running...' : 'Run'}
                 </Button>
               </div>
               <div className="mt-2 text-xs leading-4 text-muted-foreground">
@@ -109,21 +212,33 @@ export function OverlayShell() {
           >
             <Card className="bg-muted/30">
               <CardHeader className="py-4">
-                <CardTitle className="text-sm">Mock Result</CardTitle>
+                <CardTitle className="text-sm">Result</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                {runError ? <div className="text-sm text-destructive">{runError}</div> : null}
                 <div className="rounded-lg border bg-background/40 p-3">
-                  <div className="text-sm font-medium">Draft response</div>
+                  <div className="text-sm font-medium">Stream</div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    This is a static, hardcoded panel used to validate the overlay shell. No backend calls yet.
+                    {streamText || 'No output yet.'}
                   </p>
                 </div>
-                <div className="rounded-lg border bg-background/40 p-3">
-                  <div className="text-sm font-medium">Next actions</div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Hook input to the backend, stream tokens, and replace this section with real results.
-                  </p>
-                </div>
+                {finalResult ? (
+                  <div className="rounded-lg border bg-background/40 p-3">
+                    <div className="text-sm font-medium">Final</div>
+                    <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {typeof finalResult === 'string' ? finalResult : JSON.stringify(finalResult, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+                {similarity ? (
+                  <div className="rounded-lg border bg-background/40 p-3">
+                    <div className="text-sm font-medium">Related memory</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      score: {(similarity as any).score}
+                    </div>
+                    <div className="mt-2 text-sm">{(similarity as any).excerpt}</div>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </div>

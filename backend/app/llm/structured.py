@@ -30,7 +30,7 @@ def build_pydantic_model(name: str, fields: dict[str, Any]) -> type[BaseModel]:
             raise ValueError(f'Invalid field spec for {field_name}: expected object')
 
         spec: dict[str, Any] = spec_any
-        py_type = _spec_to_type(spec)
+        py_type = _spec_to_type(spec, name_hint=_nested_model_name(name, field_name))
         optional = bool(spec.get('optional', False))
         default = None if optional else ...
         model_fields[field_name] = (py_type, default)
@@ -104,7 +104,7 @@ def structured_with_retries(
     return None, err, max_attempts
 
 
-def _spec_to_type(spec: dict[str, Any]) -> Any:
+def _spec_to_type(spec: dict[str, Any], *, name_hint: str) -> Any:
     t = spec.get('type')
     if t == 'string':
         return str
@@ -118,7 +118,17 @@ def _spec_to_type(spec: dict[str, Any]) -> Any:
         items = spec.get('items')
         if not isinstance(items, dict):
             raise ValueError('Array type requires items spec')
-        return list[_spec_to_type(items)]
+        return list[_spec_to_type(items, name_hint=f'{name_hint}Item')]
     if t == 'object':
+        nested_fields = spec.get('fields')
+        if isinstance(nested_fields, dict) and nested_fields:
+            return build_pydantic_model(name_hint, nested_fields)
         return dict[str, Any]
     raise ValueError(f'Unsupported field type: {t}')
+
+
+def _nested_model_name(parent: str, field_name: str) -> str:
+    # Keep names stable and ASCII-only for dynamic Pydantic models.
+    parts = [p for p in field_name.replace('-', '_').split('_') if p]
+    suffix = ''.join(p[:1].upper() + p[1:] for p in parts) or 'Field'
+    return f'{parent}{suffix}'

@@ -54,3 +54,27 @@ class OpenRouterClient:
         if not response.data:
             return []
         return list(response.data[0].embedding)
+
+    def invoke_vision(self, *, endpoint_name: str, prompt: str, image_bytes: bytes) -> str:
+        image_b64 = image_bytes.hex()
+        # OpenAI-compatible image_url expects base64 data URL. We avoid importing base64 here.
+        # Hex -> bytes is reversible but not a valid data URL; convert properly.
+        import base64
+
+        image_b64 = base64.b64encode(image_bytes).decode('ascii')
+        data_url = f'data:image/png;base64,{image_b64}'
+
+        completion = self._client.chat.completions.create(
+            model=endpoint_name,
+            messages=[
+                {
+                    'role': 'user',
+                    'content': [
+                        {'type': 'text', 'text': prompt},
+                        {'type': 'image_url', 'image_url': {'url': data_url}},
+                    ],
+                }
+            ],
+            temperature=0.2,
+        )
+        return completion.choices[0].message.content or ''

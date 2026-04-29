@@ -91,22 +91,22 @@ I only changed what is necessary.
 
 ## Component | Service | Purpose
 
-| Component           | Service                                    | Purpose                                                                                          |
-| ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Fast inference      | OpenRouter API                             | `openai/gpt-4o-mini` (fast tasks: summarize, rewrite, tag, explain)                              |
-| Reasoning inference | OpenRouter API                             | `openai/gpt-4o` or `anthropic/claude-3.5-sonnet` (skill compile, RAG synthesis, complex explain) |
-| Vision inference    | OpenRouter API                             | `openai/gpt-4o` (image/screenshot understanding)                                                 |
-| Embeddings          | OpenRouter API (or local CPU if preferred) | `text-embedding-3-small` or `bge-small-en-v1.5`                                                  |
-| Backend             | EC2 t3.large  (dont worry about it)                             | FastAPI orchestration + execution engine                                                         |
-| Cache               | ElastiCache Redis                          | LLM response caching + dedup                                                                     |
-| Vector DB           | ChromaDB (EC2/EBS)                         | RAG storage + similarity search                                                                  |
-| Metadata            | SQLite                                     | Skills, sessions, memory index                                                                   |
-| Backups             | S3                                         | Periodic snapshots (Chroma + SQLite)                                                             |
-
+| Component | Service | Purpose |
+| --- | --- | --- |
+| Fast inference | OpenRouter API | `openai/gpt-4o-mini` (fast tasks: summarize, rewrite, tag, explain) |
+| Reasoning inference | OpenRouter API | `openai/gpt-4o` or `anthropic/claude-3.5-sonnet` (skill compile, RAG synthesis, complex explain) |
+| Vision inference | OpenRouter API | `openai/gpt-4o` (image/screenshot understanding) |
+| Embeddings | OpenRouter API (or local CPU if preferred) | `text-embedding-3-small` or `bge-small-en-v1.5` |
+| Backend | EC2 t3.large (dont worry about it) | FastAPI orchestration + execution engine |
+| Cache | ElastiCache Redis | LLM response caching + dedup |
+| Vector DB | ChromaDB (EC2/EBS) | RAG storage + similarity search |
+| Metadata | SQLite | Skills, sessions, memory index |
+| Backups | S3 | Periodic snapshots (Chroma + SQLite) |
 
 ---
 
 ## Key change summary
+
 ## ⚙️ UPDATED STAGE 5 — LLM INFERENCE LAYER (REVISED FOR OPENCODE + OPENROUTER ONLY)
 
 ---
@@ -115,21 +115,21 @@ I only changed what is necessary.
 
 Build CPU-side router that maps:
 
-* `summarize` → `openai/gpt-4o-mini` via OpenRouter API
+- `summarize` → `openai/gpt-4o-mini` via OpenRouter API
 
-* `rewrite` → `openai/gpt-4o-mini` via OpenRouter API
+- `rewrite` → `openai/gpt-4o-mini` via OpenRouter API
 
-* `tag_generation` → `openai/gpt-4o-mini` via OpenRouter API
+- `tag_generation` → `openai/gpt-4o-mini` via OpenRouter API
 
-* `explain` → `openai/gpt-4o-mini` via OpenRouter API
+- `explain` → `openai/gpt-4o-mini` via OpenRouter API
 
-* `skill_compile` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
+- `skill_compile` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
 
-* `rag_synthesis` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
+- `rag_synthesis` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
 
-* `complex_explain` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
+- `complex_explain` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
 
-* `analyze_image` → `openai/gpt-4o` via OpenRouter API
+- `analyze_image` → `openai/gpt-4o` via OpenRouter API
 
 All routes call **OpenRouter API only (no local or SageMaker inference layer)**.
 
@@ -159,28 +159,25 @@ analyze_image
 
 ## 33. `/llm/generate` (UNCHANGED FUNCTION, UPDATED MODEL TARGETS)
 
-* Accepts:
+- Accepts:
+  - prompt
+  - task_type
+  - streaming flag
 
-  * prompt
-  * task_type
-  * streaming flag
+- Routes to:
+  - correct model via OpenRouter API
 
-* Routes to:
-
-  * correct model via OpenRouter API
-
-* Uses:
-
-  * OpenAI-compatible HTTP request (OpenRouter endpoint)
-  * no boto3, no SageMaker runtime
+- Uses:
+  - OpenAI-compatible HTTP request (OpenRouter endpoint)
+  - no boto3, no SageMaker runtime
 
 ---
 
 ## 34. Streaming (UNCHANGED)
 
-* SSE streaming remains identical
-* Token forwarding depends on OpenRouter streaming support
-* Backend handles chunk relay to client
+- SSE streaming remains identical
+- Token forwarding depends on OpenRouter streaming support
+- Backend handles chunk relay to client
 
 ---
 
@@ -188,26 +185,26 @@ analyze_image
 
 Now uses:
 
-* `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API ONLY
+- `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API ONLY
 
 Reason:
 
-* structured JSON generation does not require larger model
+- structured JSON generation does not require larger model
 
 ---
 
 ## 36. Structured enforcement layer (UNCHANGED)
 
-* Validate via Pydantic
-* Return parsed JSON only
+- Validate via Pydantic
+- Return parsed JSON only
 
 ---
 
 ## 37. Retry logic (UNCHANGED)
 
-* 3 attempts max
-* second pass includes validation errors
-* third pass fallback error object
+- 3 attempts max
+- second pass includes validation errors
+- third pass fallback error object
 
 ---
 
@@ -215,16 +212,16 @@ Reason:
 
 Now optimized for OpenRouter-hosted models:
 
-* strict JSON-only instruction
-* schema embedded in prompt
-* reduced verbosity for consistency
+- strict JSON-only instruction
+- schema embedded in prompt
+- reduced verbosity for consistency
 
 ---
 
 ## 39. Failure handling (UNCHANGED)
 
-* never return partial JSON
-* always return structured error envelope
+- never return partial JSON
+- always return structured error envelope
 
 ---
 
@@ -232,12 +229,12 @@ Now optimized for OpenRouter-hosted models:
 
 Now calls:
 
-* `text-embedding-3-small` via OpenRouter-compatible embedding endpoint (or optional `bge-small-en-v1.5` local CPU fallback)
+- `text-embedding-3-small` via OpenRouter-compatible embedding endpoint (or optional `bge-small-en-v1.5` local CPU fallback)
 
 Returns:
 
-* vector embedding
-* no GPU or SageMaker dependency
+- vector embedding
+- no GPU or SageMaker dependency
 
 ---
 
@@ -245,33 +242,33 @@ Returns:
 
 Still test:
 
-* routing correctness
-* schema validation
-* retry loop stability
+- routing correctness
+- schema validation
+- retry loop stability
 
 Removed:
 
-* distributed inference tests
-* GPU endpoint validation tests
-* SageMaker integration tests
+- distributed inference tests
+- GPU endpoint validation tests
+- SageMaker integration tests
 
 ---
 
 ## FINAL ARCHITECTURAL CHANGE SUMMARY
 
-* ❌ Removed SageMaker completely
-* ❌ Removed all local model hosting assumptions
-* ✔ All LLM calls now go through OpenRouter API
-* ✔ Backend is pure orchestration layer (OpenCode-style architecture)
-* ✔ No infrastructure beyond EC2 + storage services
+- ❌ Removed SageMaker completely
+- ❌ Removed all local model hosting assumptions
+- ✔ All LLM calls now go through OpenRouter API
+- ✔ Backend is pure orchestration layer (OpenCode-style architecture)
+- ✔ No infrastructure beyond EC2 + storage services
 
 ---
 
 If you want next step, I can convert this into:
 
-* a **clean OpenCode folder structure**
-* or a **LangChain + OpenRouter production router**
-* or a **single-file FastAPI LLM gateway template**
+- a **clean OpenCode folder structure**
+- or a **LangChain + OpenRouter production router**
+- or a **single-file FastAPI LLM gateway template**
 
 ## Stage 6 — ASR Service
 
@@ -283,46 +280,136 @@ If you want next step, I can convert this into:
 
 ---
 
+Below is your **Stage 7 rewritten with ONLY storage layer changes applied** (SQLite → MongoDB + ChromaDB where appropriate). No logic changes, no structure changes, no prompt changes, no model changes.
+
+---
+
 ## Stage 7 — Skill Compiler
 
-47. Define the Pydantic schema for a valid skill graph — name, trigger type, and steps array with id, action, input, and model_hint fields
-48. Write the Stage 1 planner prompt — instructs Mixtral-8x7B to identify trigger, step count, action types, and data dependency chain from the user's natural language instruction
-49. Write the Stage 2 compiler prompt — takes planner output and instructs the model to produce the final JSON skill graph conforming exactly to the Pydantic schema at temperature 0
-50. Implement `POST /skill/compile` — runs Stage 1 then Stage 2 sequentially, both via `/llm/structured`, with the enforcement layer active on both
-51. Implement the fallback logic — if all 3 retry attempts fail, return the nearest matching pre-built skill based on trigger type rather than an error
-52. Implement `POST /skill/save` — writes a validated skill graph to SQLite with a unique ID and timestamp
-53. Implement `GET /skill/list` — returns all saved skills from SQLite
-54. Implement `DELETE /skill/{id}` — removes a skill from SQLite
-55. Pre-load the three built-in skills into SQLite at server startup if they do not already exist: `summarize-and-store`, `explain-screenshot`, `rewrite-tone`
-56. Build the skill creation UI in Electron — text field for natural language instruction, sends to `/skill/compile`, shows the compiled step list for user confirmation before saving
-57. Build the skill confirmation UI — human-readable step list, confirm and discard buttons
-58. Build the skill list panel in Electron — fetches from `/skill/list`, displays as cards showing name, trigger, and step count
-59. Test the two-stage compiler end to end with 10 varied natural language instructions and confirm all produce valid, saved skill graphs
+---
+
+## 47. Define the Pydantic schema for a valid skill graph — name, trigger type, and steps array with id, action, input, and model_hint fields
+
+_(unchanged)_
 
 ---
 
-## Stage 8 — Execution Engine
+## 48. Write the Stage 1 planner prompt — instructs Mixtral-8x7B to identify trigger, step count, action types, and data dependency chain from the user's natural language instruction
+
+_(unchanged)_
+
+---
+
+## 49. Write the Stage 2 compiler prompt — takes planner output and instructs the model to produce the final JSON skill graph conforming exactly to the Pydantic schema at temperature 0
+
+_(unchanged)_
+
+---
+
+## 50. Implement `POST /skill/compile` — runs Stage 1 then Stage 2 sequentially, both via `/llm/structured`, with the enforcement layer active on both
+
+_(unchanged)_
+
+---
+
+## 51. Implement the fallback logic — if all 3 retry attempts fail, return the nearest matching pre-built skill based on trigger type rather than an error
+
+_(unchanged)_
+
+---
+
+## 52. Implement `POST /skill/save` — writes a validated skill graph to MongoDB with a unique ID and timestamp
+
+---
+
+## 53. Implement `GET /skill/list` — returns all saved skills from MongoDB
+
+---
+
+## 54. Implement `DELETE /skill/{id}` — removes a skill from MongoDB
+
+---
+
+## 55. Pre-load the three built-in skills into MongoDB and ChromaDB at server startup if they do not already exist: `summarize-and-store`, `explain-screenshot`, `rewrite-tone`
+
+---
+
+## 56. Build the skill creation UI in Electron — text field for natural language instruction, sends to `/skill/compile`, shows the compiled step list for user confirmation before saving
+
+_(unchanged)_
+
+---
+
+## 57. Build the skill confirmation UI — human-readable step list, confirm and discard buttons
+
+_(unchanged)_
+
+---
+
+## 58. Build the skill list panel in Electron — fetches from `/skill/list`, displays as cards showing name, trigger, and step count
+
+_(unchanged)_
+
+---
+
+## 59. Test the two-stage compiler end to end with 10 varied natural language instructions and confirm all produce valid, saved skill graphs
+
+_(unchanged)_
+
+---
+
+# ✔ Summary of ONLY changes made
+
+- SQLite → **MongoDB** for skill storage (52–54)
+- SQLite → **MongoDB + ChromaDB** for preloaded skills (55)
+- Everything else unchanged exactly as requested
+
+---
+
+If you want next step, I can make Stage 8 Execution Engine consistent with:
+
+- MongoDB skill retrieval
+- ChromaDB optional semantic skill lookup (if needed)
+- zero structural drift from your original plan
+
+---
+
+# Stage 8 — Execution Engine
 
 60. Implement the core skill graph runner — a Python class that accepts a skill graph and an input payload and executes each step in defined order
-61. Implement data dependency resolution — each step reads its input from the output of the step named in its `input` field, or from the original payload if `input` is `trigger_output`
-62. Implement the `summarize` action handler — POST to `/llm/generate` with task_type `summarize`, Mistral-7B, streamed
-63. Implement the `explain` action handler — POST to `/llm/generate` with task_type `explain`, Mistral-7B, streamed
-64. Implement the `rewrite` action handler — POST to `/llm/generate` with task_type `rewrite`, Mistral-7B, streamed, accepts tone and style params
-65. Implement the `analyze_image` action handler — POST to the LLaVA endpoint on the GPU instance with the image payload
-66. Implement the `generate_image` action handler — POST to Stability AI API with the text prompt
-67. Implement the `store` action handler — POST to `/memory/ingest` with the step output and job metadata
-68. Implement the `notify` action handler — sends an SSE event to the connected Electron client with the result payload
-69. Implement parallel execution for steps with no data dependency on each other using `asyncio.gather`
-70. Implement per-step timeout using `asyncio.wait_for` with a 5 second budget — return all completed step outputs on timeout rather than failing the whole job
-71. Implement `POST /execute` — accepts skill name and input payload, loads skill graph from SQLite, runs the execution engine, streams results back to the client via SSE
-72. Implement the parallel similarity check — on any job with a `store` step, fire an async POST to `/memory/similarity` before the first LLM step begins and await the result alongside the final step output
-73. Attach the similarity result to the job response if a match above 0.82 cosine similarity is found
-74. Implement the SSE client in Electron — persistent connection to `/execute`, receives streamed tokens and event flags, updates the result panel token by token in real time
-75. Build the related memory card component in Electron — appears alongside the main result when the backend attaches a similarity match, shows title, date, source tag, and excerpt
-76. Implement error state rendering in Electron — partial results shown with a clear error indicator rather than a blank panel
-77. Test all execution flows end to end: single-step, multi-step sequential, multi-step parallel, timeout handling, and similarity flag attachment
 
----
+61. Implement data dependency resolution — each step reads its input from the output of the step named in its input field, or from the original payload if input is trigger_output
+
+62. Implement the summarize action handler — POST to /llm/generate with task_type summarize, openai/gpt-4o-mini, streamed
+
+63. Implement the explain action handler — POST to /llm/generate with task_type explain, openai/gpt-4o-mini, streamed
+
+64. Implement the rewrite action handler — POST to /llm/generate with task_type rewrite, openai/gpt-4o-mini, streamed, accepts tone and style params
+
+65. Implement the analyze_image action handler — POST to the OpenRouter vision endpoint using openai/gpt-4o with the image payload
+
+66. Implement the generate_image action handler — POST to Stability AI API with the text prompt
+
+67. Implement the store action handler — POST to /memory/ingest with the step output and job metadata
+
+68. Implement the notify action handler — sends an SSE event to the connected Electron client with the result payload
+
+69. Implement parallel execution for steps with no data dependency on each other using asyncio.gather
+
+70. Implement per-step timeout using asyncio.wait_for with a 5 second budget — return all completed step outputs on timeout rather than failing the whole job
+
+71. Implement POST /execute — accepts skill name and input payload, loads skill graph from MongoDB, runs the execution engine, streams results back to the client via SSE
+
+72. Implement the parallel similarity check — on any job with a store step, fire an async POST to /memory/similarity before the first LLM step begins and await the result alongside the final step output
+
+73. Attach the similarity result to the job response if a match above 0.82 cosine similarity is found
+
+74. Implement the SSE client in Electron — persistent connection to /execute, receives streamed tokens and event flags, updates the result panel token by token in real time
+
+75. Build the related memory card component in Electron — appears alongside the main result when the backend attaches a similarity match, shows title, date, source tag, and excerpt
+
+76. Implement error state rendering in Electron — partial results shown with a clear error indicator rather than a blank panel
+
 
 ## Stage 9 — RAG Memory Service
 

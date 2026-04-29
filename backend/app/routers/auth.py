@@ -31,9 +31,18 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _normalize_auth0_domain(raw: str) -> str:
+    raw = raw.strip().rstrip('/')
+    if raw.startswith('https://'):
+        raw = raw[len('https://') :]
+    elif raw.startswith('http://'):
+        raw = raw[len('http://') :]
+    return raw.strip().rstrip('/')
+
+
 @lru_cache(maxsize=1)
 def _jwks_client() -> PyJWKClient:
-    domain = _required_env("AUTH0_DOMAIN").strip().rstrip("/")
+    domain = _normalize_auth0_domain(_required_env('AUTH0_DOMAIN'))
     return PyJWKClient(f"https://{domain}/.well-known/jwks.json")
 
 
@@ -48,7 +57,7 @@ def _users_collection() -> Collection:
 
 
 def _verify_access_token(token: str) -> dict:
-    domain = _required_env("AUTH0_DOMAIN").strip().rstrip("/")
+    domain = _normalize_auth0_domain(_required_env('AUTH0_DOMAIN'))
     audience = _required_env("AUTH0_AUDIENCE")
 
     try:

@@ -42,16 +42,41 @@ export function App() {
         authorizationParams: { audience },
       })
 
-      const res = await fetch(`${backendBaseUrl}/auth/sync`, {
+      const res = await fetch(`${backendBaseUrl}/auth/whoami`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      const whoami = (await res.json()) as {
+        sub?: string
+        aud?: string | string[]
+        iss?: string
+        detail?: string
+      }
+      if (!res.ok) {
+        throw new Error(whoami.detail || `HTTP ${res.status} (whoami)`)
+      }
+
+      // Help debug common 401 causes without opening backend logs.
+      const expectedIssuer = `https://${import.meta.env.VITE_AUTH0_DOMAIN}/`
+      const audList = Array.isArray(whoami.aud) ? whoami.aud : whoami.aud ? [whoami.aud] : []
+      if (whoami.iss && whoami.iss !== expectedIssuer) {
+        throw new Error(`Token iss mismatch: ${whoami.iss} (expected ${expectedIssuer})`)
+      }
+      if (audList.length && !audList.includes(audience)) {
+        throw new Error(`Token aud mismatch: ${audList.join(', ')} (expected ${audience})`)
+      }
+
+      const res2 = await fetch(`${backendBaseUrl}/auth/sync`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
         },
       })
 
-      const payload = (await res.json()) as { status?: string; detail?: string }
-      if (!res.ok) {
-        throw new Error(payload.detail || `HTTP ${res.status}`)
+      const payload = (await res2.json()) as { status?: string; detail?: string }
+      if (!res2.ok) {
+        throw new Error(payload.detail || `HTTP ${res2.status} (sync)`)
       }
 
       setSyncStatus('synced')
