@@ -7,6 +7,8 @@ import { App } from "@/app/App";
 
 const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
+document.documentElement.classList.add('dark')
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Auth0Provider

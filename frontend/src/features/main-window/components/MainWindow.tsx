@@ -1,4 +1,5 @@
 import React from 'react'
+import { Search, Sparkles } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,38 +11,69 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { pickRecordingMimeType } from '@/features/voice/voice-recorder'
+
+type TimelineItem = {
+  id: string
+  title: string
+  created_at: string
+  source_type: string
+  topic_tags: string[]
+}
+
+type Citation = {
+  title: string
+  capture_date: string
+  source_type: string
+  topic_tags: string[]
+}
+
+type SearchMode = 'search' | 'ask-ai'
+
+const TAG_STYLES = [
+  'bg-sky-500/20 text-sky-200 border-sky-400/40',
+  'bg-emerald-500/20 text-emerald-200 border-emerald-400/40',
+  'bg-amber-500/20 text-amber-200 border-amber-400/40',
+  'bg-rose-500/20 text-rose-200 border-rose-400/40',
+  'bg-violet-500/20 text-violet-200 border-violet-400/40',
+]
+
+function prettyDate(value: string): string {
+  if (!value.trim()) return 'unknown time'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleString()
+}
 
 export function MainWindow() {
   const [health, setHealth] = React.useState<string>('loading')
   const [error, setError] = React.useState<string | null>(null)
+
   const [isRecording, setIsRecording] = React.useState(false)
-  const [asrText, setAsrText] = React.useState('')
   const [asrError, setAsrError] = React.useState<string | null>(null)
   const [asrStatus, setAsrStatus] = React.useState<'idle' | 'recording' | 'uploading'>('idle')
+
+  const [mode, setMode] = React.useState<SearchMode>('ask-ai')
+  const [query, setQuery] = React.useState('')
+  const [ragLoading, setRagLoading] = React.useState(false)
+  const [ragError, setRagError] = React.useState<string | null>(null)
+  const [ragAnswer, setRagAnswer] = React.useState('')
+  const [citations, setCitations] = React.useState<Citation[]>([])
+  const [contextSnippet, setContextSnippet] = React.useState('')
+
+  const [timeline, setTimeline] = React.useState<TimelineItem[]>([])
+  const [timelineLoading, setTimelineLoading] = React.useState(false)
+
   const recorderRef = React.useRef<MediaRecorder | null>(null)
   const chunksRef = React.useRef<BlobPart[]>([])
   const streamRef = React.useRef<MediaStream | null>(null)
   const stopTimerRef = React.useRef<number | null>(null)
   const holdToTalkActiveRef = React.useRef(false)
-  const recordingMimeTypeRef = React.useRef<'audio/webm' | 'audio/wav'>('audio/webm')
+  const blobTypeRef = React.useRef('audio/webm')
 
   const backendBaseUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000'
-
-  React.useEffect(() => {
-    fetch(`${backendBaseUrl}/health`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<{ status?: string }>
-      })
-      .then((json) => {
-        setHealth(json.status ?? 'unknown')
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e))
-        setHealth('error')
-      })
-  }, [backendBaseUrl])
 
   const clearRecorderResources = React.useCallback(() => {
     if (stopTimerRef.current !== null) {
@@ -59,6 +91,55 @@ export function MainWindow() {
     recorderRef.current = null
     chunksRef.current = []
   }, [])
+
+  const runAskAi = React.useCallback(
+    async (text: string) => {
+      const normalized = text.trim()
+      if (!normalized) return
+
+      setRagLoading(true)
+      setRagError(null)
+      setRagAnswer('')
+      setCitations([])
+      setContextSnippet('')
+
+      try {
+        const recallRes = await fetch(`${backendBaseUrl}/memory/recall`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: normalized }),
+        })
+        const recallPayload = (await recallRes.json()) as {
+          answer?: string
+          citations?: Citation[]
+          detail?: string
+        }
+        if (!recallRes.ok) {
+          throw new Error(recallPayload.detail || `HTTP ${recallRes.status}`)
+        }
+
+        setRagAnswer((recallPayload.answer || '').trim())
+        setCitations(Array.isArray(recallPayload.citations) ? recallPayload.citations : [])
+
+        const simRes = await fetch(`${backendBaseUrl}/memory/similarity`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: normalized }),
+        })
+        const simPayload = (await simRes.json()) as {
+          match?: { excerpt?: string } | null
+        }
+        if (simRes.ok && simPayload.match?.excerpt) {
+          setContextSnippet(simPayload.match.excerpt)
+        }
+      } catch (e: unknown) {
+        setRagError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setRagLoading(false)
+      }
+    },
+    [backendBaseUrl],
+  )
 
   const uploadAudioBlob = React.useCallback(
     async (blob: Blob, filename: string) => {
@@ -79,14 +160,18 @@ export function MainWindow() {
           throw new Error(payload.detail || `HTTP ${res.status}`)
         }
 
-        setAsrText(payload.text || '')
+        const text = (payload.text || '').trim()
+        setQuery(text)
+        if (text) {
+          void runAskAi(text)
+        }
       } catch (e: unknown) {
         setAsrError(e instanceof Error ? e.message : String(e))
       } finally {
         setAsrStatus('idle')
       }
     },
-    [backendBaseUrl],
+    [backendBaseUrl, runAskAi],
   )
 
   const stopRecording = React.useCallback(async () => {
@@ -99,25 +184,21 @@ export function MainWindow() {
     }
 
     await new Promise<void>((resolve) => {
-      recorder.addEventListener(
-        'stop',
-        () => {
-          resolve()
-        },
-        { once: true },
-      )
+      recorder.addEventListener('stop', () => resolve(), { once: true })
       recorder.stop()
     })
 
     setIsRecording(false)
-    const mimeType = recordingMimeTypeRef.current
-    const audioBlob = new Blob(chunksRef.current, { type: mimeType })
+    const audioBlob = new Blob(chunksRef.current, { type: blobTypeRef.current })
     clearRecorderResources()
 
-    if (audioBlob.size > 0) {
-      const filename = mimeType === 'audio/wav' ? 'voice.wav' : 'voice.webm'
-      await uploadAudioBlob(audioBlob, filename)
+    if (audioBlob.size < 1024) {
+      setAsrError('No audio captured. Hold the key a bit longer, then try again.')
+      return
     }
+
+    const filename = blobTypeRef.current.includes('wav') ? 'voice.wav' : 'voice.webm'
+    await uploadAudioBlob(audioBlob, filename)
   }, [clearRecorderResources, uploadAudioBlob])
 
   const startRecording = React.useCallback(async () => {
@@ -125,30 +206,20 @@ export function MainWindow() {
       setAsrError('Audio recording is not supported in this environment.')
       return
     }
-
     if (isRecording || asrStatus === 'uploading') return
 
     try {
       setAsrError(null)
-      setAsrText('')
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
 
-      const supportedMimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : MediaRecorder.isTypeSupported('audio/wav')
-            ? 'audio/wav'
-            : null
-
-      if (!supportedMimeType) {
-        throw new Error('No supported recording format found (need WebM or WAV).')
-      }
-
-      recordingMimeTypeRef.current = supportedMimeType.includes('wav') ? 'audio/wav' : 'audio/webm'
-      const recorder = new MediaRecorder(stream, { mimeType: supportedMimeType })
+      const { mediaRecorderMimeType, blobType } = pickRecordingMimeType()
+      const recorder = new MediaRecorder(
+        stream,
+        mediaRecorderMimeType ? { mimeType: mediaRecorderMimeType } : undefined,
+      )
       recorderRef.current = recorder
+      blobTypeRef.current = blobType
       chunksRef.current = []
 
       recorder.addEventListener('dataavailable', (event: BlobEvent) => {
@@ -172,6 +243,39 @@ export function MainWindow() {
   }, [asrStatus, clearRecorderResources, isRecording, stopRecording])
 
   React.useEffect(() => {
+    fetch(`${backendBaseUrl}/health`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<{ status?: string }>
+      })
+      .then((json) => {
+        setHealth(json.status ?? 'unknown')
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e))
+        setHealth('error')
+      })
+  }, [backendBaseUrl])
+
+  React.useEffect(() => {
+    setTimelineLoading(true)
+    fetch(`${backendBaseUrl}/memory/timeline?limit=30&offset=0`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<{ items?: TimelineItem[] }>
+      })
+      .then((json) => {
+        setTimeline(Array.isArray(json.items) ? json.items : [])
+      })
+      .catch(() => {
+        setTimeline([])
+      })
+      .finally(() => {
+        setTimelineLoading(false)
+      })
+  }, [backendBaseUrl])
+
+  React.useEffect(() => {
     return () => {
       clearRecorderResources()
     }
@@ -186,7 +290,7 @@ export function MainWindow() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) return
-      if (event.code !== 'Space') return
+      if (!(event.shiftKey && event.code === 'Space')) return
       if (isTypingTarget(event.target)) return
       if (holdToTalkActiveRef.current) return
 
@@ -212,124 +316,224 @@ export function MainWindow() {
     }
   }, [startRecording, stopRecording])
 
+  const suggestedQueries = React.useMemo(() => {
+    const fromTitles = timeline
+      .map((item) => item.title)
+      .filter((title) => typeof title === 'string' && title.trim().length > 0)
+      .slice(0, 6)
+    return Array.from(new Set(fromTitles))
+  }, [timeline])
+
+  const filteredTimeline = React.useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return timeline
+    return timeline.filter((item) => {
+      const hay = `${item.title} ${item.source_type} ${(item.topic_tags || []).join(' ')}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [query, timeline])
+
+  const handleSubmit = React.useCallback(async () => {
+    if (mode === 'ask-ai') {
+      await runAskAi(query)
+      return
+    }
+
+    if (!query.trim()) {
+      setContextSnippet('')
+      return
+    }
+
+    setRagLoading(true)
+    setRagError(null)
+    setRagAnswer('')
+    setCitations([])
+    try {
+      const simRes = await fetch(`${backendBaseUrl}/memory/similarity`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: query.trim() }),
+      })
+      const payload = (await simRes.json()) as { match?: { excerpt?: string } | null; detail?: string }
+      if (!simRes.ok) {
+        throw new Error(payload.detail || `HTTP ${simRes.status}`)
+      }
+      setContextSnippet(payload.match?.excerpt?.trim() || '')
+    } catch (e: unknown) {
+      setRagError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRagLoading(false)
+    }
+  }, [backendBaseUrl, mode, query, runAskAi])
+
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex max-w-4xl flex-col gap-6 px-8 py-12">
-        <header className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <h1 className="font-heading text-3xl font-semibold tracking-tight">AURA</h1>
-              <Badge variant="secondary">desktop</Badge>
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+        <header className="sticky top-0 z-10 rounded-lg border border-border bg-secondary/80 p-4 backdrop-blur">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Sparkles className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-11 bg-background pl-9 pr-9"
+                value={query}
+                placeholder="Ask your database..."
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void handleSubmit()
+                  }
+                }}
+              />
             </div>
-            <p className="text-sm text-muted-foreground">
-              Main app window. Use <span className="font-medium text-foreground">Ctrl+Shift+Space</span> to toggle the overlay.
-            </p>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant={mode === 'search' ? 'secondary' : 'outline'}
+                onClick={() => setMode('search')}
+              >
+                Search
+              </Button>
+              <Button
+                variant={mode === 'ask-ai' ? 'secondary' : 'outline'}
+                onClick={() => setMode('ask-ai')}
+              >
+                Ask AI
+              </Button>
+              <Button
+                variant={isRecording ? 'destructive' : 'default'}
+                onClick={() => (isRecording ? void stopRecording() : void startRecording())}
+                disabled={asrStatus === 'uploading'}
+              >
+                {isRecording ? 'Stop & Transcribe' : 'Start Recording'}
+              </Button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => window.overlay.toggle()}>
-              Toggle overlay
-            </Button>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant={health === 'ok' ? 'default' : 'outline'}>{health}</Badge>
+            <Badge variant={asrStatus === 'recording' ? 'destructive' : 'outline'}>{asrStatus}</Badge>
+            <span>Shortcut: Shift+Space</span>
+            {error ? <span className="text-destructive">{error}</span> : null}
           </div>
         </header>
 
-        <Separator />
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>{mode === 'ask-ai' ? 'RAG Answer' : 'Search Results'}</CardTitle>
+              <CardDescription>
+                {mode === 'ask-ai'
+                  ? 'Answer synthesized from your indexed memory with sources.'
+                  : 'Filter your indexed recordings and inspect best matching context.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {ragError ? <div className="text-sm text-destructive">{ragError}</div> : null}
+              {asrError ? <div className="text-sm text-destructive">{asrError}</div> : null}
+              {ragLoading ? <div className="text-sm text-muted-foreground">Thinking...</div> : null}
 
-        <div className="grid gap-6 md:grid-cols-2">
+              {mode === 'ask-ai' ? (
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="text-sm font-medium">Answer</div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {ragAnswer || 'Ask a question to get an answer from your memory database.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="text-sm font-medium">Best matching context</div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {contextSnippet || 'Run Search to retrieve the most relevant snippet.'}
+                  </p>
+                </div>
+              )}
+
+              {mode === 'ask-ai' && citations.length > 0 ? (
+                <div className="rounded-lg border border-border bg-background/40 p-3">
+                  <div className="text-sm font-medium">Sources</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {citations.slice(0, 4).map((source, index) => (
+                      <Badge key={`${source.title}-${source.capture_date}-${index}`} variant="secondary">
+                        {source.title || 'Memory'}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Backend</CardTitle>
-              <CardDescription>Health check status for the local API.</CardDescription>
+              <CardTitle>Suggested Queries</CardTitle>
+              <CardDescription>Recent recordings are turned into quick prompts.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">/health</div>
-                <Badge variant={health === 'ok' ? 'default' : 'outline'}>{health}</Badge>
-              </div>
-              {error ? <div className="text-sm text-destructive">{error}</div> : null}
-              <div className="text-xs text-muted-foreground">
-                Using VITE_BACKEND_URL={import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000'}
-              </div>
+            <CardContent className="space-y-2">
+              {suggestedQueries.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No suggestions yet. Record something first.</div>
+              ) : (
+                suggestedQueries.map((title) => (
+                  <Button
+                    key={title}
+                    variant="outline"
+                    className="w-full justify-start overflow-hidden text-left"
+                    onClick={() => {
+                      setQuery(title)
+                      void runAskAi(title)
+                    }}
+                  >
+                    <span className="block w-full truncate">{title}</span>
+                  </Button>
+                ))
+              )}
             </CardContent>
-            <CardFooter className="justify-end">
-              <Button variant="secondary" onClick={() => window.location.reload()}>
-                Refresh
+            <CardFooter>
+              <Button variant="outline" className="w-full" onClick={() => window.overlay.show()}>
+                Open Overlay
               </Button>
             </CardFooter>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Overlay</CardTitle>
-              <CardDescription>Always-on-top shell for quick actions.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <div className="text-sm font-medium">Shortcut</div>
-                <div className="mt-1 text-sm text-muted-foreground">Ctrl+Shift+Space</div>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Use the shortcut to show/hide the overlay while keeping this window open.
-              </div>
-            </CardContent>
-            <CardFooter className="justify-end">
-              <Button onClick={() => window.overlay.show()}>Show overlay</Button>
-            </CardFooter>
-          </Card>
-
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>ASR Voice Command</CardTitle>
-              <CardDescription>
-                Siri-style push-to-talk: hold <span className="font-mono">Space</span> to record, release to transcribe via <span className="font-mono">POST /asr/transcribe</span>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={asrStatus === 'recording' ? 'default' : 'outline'}>{asrStatus}</Badge>
-                <div className="text-xs text-muted-foreground">Max duration: 60 seconds</div>
-              </div>
-
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-medium">Hold Space to talk</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Works when you are not typing in an input field.
-                    </div>
-                  </div>
-                  <div className="relative flex h-12 w-12 items-center justify-center">
-                    <span
-                      className={
-                        'absolute h-12 w-12 rounded-full bg-primary/20 transition ' +
-                        (asrStatus === 'recording' ? 'scale-110 animate-pulse' : 'scale-100')
-                      }
-                    />
-                    <span className="relative h-6 w-6 rounded-full bg-primary" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <Button onClick={() => void startRecording()} disabled={isRecording || asrStatus === 'uploading'}>
-                  Start recording
-                </Button>
-                <Button variant="outline" onClick={() => void stopRecording()} disabled={!isRecording}>
-                  Stop and transcribe
-                </Button>
-              </div>
-
-              {asrError ? <div className="text-sm text-destructive">{asrError}</div> : null}
-
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <div className="text-sm font-medium">Transcript</div>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                  {asrText || 'No transcript yet. Record then transcribe.'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recordings Feed</CardTitle>
+            <CardDescription>Memory timeline from your indexed captures.</CardDescription>
+          </CardHeader>
+          <Separator />
+          <CardContent className="max-h-[460px] space-y-3 overflow-y-auto pt-4">
+            {timelineLoading ? <div className="text-sm text-muted-foreground">Loading recordings...</div> : null}
+            {!timelineLoading && filteredTimeline.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No recordings match your query.</div>
+            ) : null}
+            {filteredTimeline.map((item) => (
+              <Card key={item.id} className="border border-border">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-base">{item.title || 'Untitled recording'}</CardTitle>
+                    <Badge variant="secondary">{item.source_type || 'unknown'}</Badge>
+                  </div>
+                  <CardDescription className="text-muted-foreground">{prettyDate(item.created_at)}</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex flex-wrap gap-2">
+                    {(item.topic_tags || []).slice(0, 5).map((tag, index) => (
+                      <Badge
+                        key={`${item.id}-${tag}`}
+                        variant="outline"
+                        className={TAG_STYLES[index % TAG_STYLES.length]}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </main>
   )
