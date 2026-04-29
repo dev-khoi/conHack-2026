@@ -28,5 +28,7 @@ interface Window {
     show: () => Promise<void>
     hide: () => Promise<void>
     setPanelState: (panelState: 'compact' | 'input' | 'expanded') => Promise<void>
+    getClipboardText: () => Promise<string>
+    captureScreenshotBase64: () => Promise<string | null>
   }
 }

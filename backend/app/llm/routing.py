@@ -31,8 +31,8 @@ DEFAULT_ENDPOINTS = LlmEndpoints(
     reasoning_inference='openai/gpt-4o',
     vision_inference='openai/gpt-4o',
     embedding_inference='BAAI/bge-large-en-v1.5',
-    tag_inference='mistralai/mistral-7b-instruct',
-    rag_inference='mistralai/mixtral-8x7b-instruct',
+    tag_inference='openai/gpt-4o-mini',
+    rag_inference='openai/gpt-4o',
 )
 
 

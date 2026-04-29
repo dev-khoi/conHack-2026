@@ -22,6 +22,19 @@ class ExecuteRequest(BaseModel):
     payload: dict[str, Any]
 
 
+class GraphStepRequest(BaseModel):
+    id: str = Field(min_length=1)
+    tool: str = Field(min_length=1)
+    input: str = Field(min_length=1)
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class ExecuteGraphRequest(BaseModel):
+    intent: str = Field(min_length=1)
+    tool_graph: list[GraphStepRequest] = Field(min_length=1)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 def _load_skill_from_mongo(*, name: str) -> SkillGraph:
     col = skills_collection()
     doc = col.find_one({"name": name})
@@ -38,6 +51,50 @@ def _load_skill_from_mongo(*, name: str) -> SkillGraph:
             "steps": doc.get("steps"),
         }
     return SkillGraph.model_validate(raw)
+
+
+def _graph_to_skill(req: ExecuteGraphRequest) -> SkillGraph:
+    allowed = {
+        'summarize',
+        'explain',
+        'rewrite',
+        'analyze',
+        'analyze_image',
+        'store_memory',
+        'notify_user',
+        'store',
+        'notify',
+    }
+    steps: list[dict[str, Any]] = []
+    for s in req.tool_graph:
+        if s.tool not in allowed:
+            raise HTTPException(status_code=400, detail=f'Unsupported tool in graph: {s.tool}')
+        input_ref = s.input
+        if s.depends_on and not input_ref.startswith('step_'):
+            # deterministic dependency resolution: bind to first dependency output
+            input_ref = f"step_{s.depends_on[0]}_output"
+        if (
+            not s.depends_on
+            and input_ref != 'trigger_output'
+            and not input_ref.startswith('step_')
+            and input_ref not in req.payload
+        ):
+            # pass literal by payload key
+            key = f"step_{s.id}_literal"
+            req.payload[key] = s.input
+            input_ref = key
+
+        action = s.tool
+        if action == 'store_memory':
+            action = 'store'
+        if action == 'notify_user':
+            action = 'notify'
+        if action == 'analyze':
+            action = 'explain'
+
+        steps.append({'id': s.id, 'action': action, 'input': input_ref})
+
+    return SkillGraph.model_validate({'name': f'router-{req.intent}', 'trigger': 'voice', 'steps': steps})
 
 
 @router.post("/", response_class=StreamingResponse)
@@ -95,6 +152,50 @@ async def execute(req: ExecuteRequest):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post('/graph', response_class=StreamingResponse)
+async def execute_graph(req: ExecuteGraphRequest):
+    backend_base_url = os.getenv('BACKEND_BASE_URL', 'http://127.0.0.1:8000')
+    skill = _graph_to_skill(req)
+    payload = {'text': req.payload.get('text', ''), **req.payload}
+
+    runner = SkillRunner(backend_base_url=backend_base_url)
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def notify(event: dict[str, Any]) -> None:
+        await queue.put(event)
+
+    job_task = asyncio.create_task(runner.run(skill=skill, payload=payload, notify=notify, similarity_task=None))
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        while True:
+            if job_task.done() and queue.empty():
+                break
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=0.25)
+            except TimeoutError:
+                continue
+            yield f"data: {json.dumps(event)}\n\n"
+
+        try:
+            result = await job_task
+        except Exception as exc:
+            yield f'data: {json.dumps({"type": "error", "detail": str(exc)})}\n\n'
+            yield 'data: {"type":"done"}\n\n'
+            return
+        yield f'data: {json.dumps({"type": "final", "result": result})}\n\n'
+        yield 'data: {"type":"done"}\n\n'
+
+    return StreamingResponse(
+        event_stream(),
+        media_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
         },
     )
 

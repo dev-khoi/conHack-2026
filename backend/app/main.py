@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import asr, auth, execution_engine, llm, memory, skill_compiler
+from app.routers import asr, auth, execution_engine, llm, memory, skill_compiler, tool_router
 from app.skills.builtin_skills import BUILTIN_SKILLS
 from app.database.chroma import upsert_skill_docs
 from app.database.mongo import skills_collection
@@ -52,6 +52,7 @@ app.include_router(skill_compiler.router, prefix="/skill", tags=["skill"])
 app.include_router(execution_engine.router, prefix="/execute", tags=["execute"])
 app.include_router(memory.router, prefix="/memory", tags=["memory"])
 app.include_router(llm.router, prefix="/llm", tags=["llm"])
+app.include_router(tool_router.router, prefix="/router", tags=["router"])
 
 
 @app.on_event('startup')

@@ -8,6 +8,7 @@
 - Electron renderer calls FastAPI at `VITE_BACKEND_URL` (default `http://127.0.0.1:8000`).
 - FastAPI exposes modular routers: `/asr`, `/auth`, `/llm`, `/skill`, `/execute`, `/memory`.
 - Execution flow is API-first: overlay/main-window -> `/execute` SSE -> execution engine -> internal calls to `/llm/*` and `/memory/*`.
+- Voice-first flow (overlay): stop recording -> capture clipboard + screenshot -> `/router/plan` -> `/execute/graph` SSE.
 
 ### Backend service modules
 - `app/main.py`: app bootstrap, CORS config, router registration, startup preload of built-in skills.
@@ -16,6 +17,7 @@
 - `app/routers/skill_compiler.py`: save/list/delete skills in MongoDB; compile endpoint currently stubbed.
 - `app/routers/execution_engine.py`: streaming `/execute` endpoint (SSE).
 - `app/routers/memory.py`: ingest, similarity, recall, timeline.
+- `app/routers/tool_router.py`: deterministic multimodal router; converts voice+clipboard+screen context into strict tool graph JSON.
 - `app/execution/engine.py`: step runner with dependency resolution, timeouts, and task handlers.
 
 ### Data stores
@@ -47,8 +49,8 @@
 
 ### Model routing (LLM)
 - Fast inference: lightweight generation tasks.
-- Tag generation: routed to Mistral 7B class model.
-- RAG synthesis: routed to Mixtral 8x7B class model.
+- Tag generation: routed to `openai/gpt-4o-mini`.
+- RAG synthesis: routed to `openai/gpt-4o`.
 - Embeddings: routed to `bge-large` class model via `/llm/embedding`.
 
 ### Frontend architecture
@@ -56,9 +58,13 @@
 - `src/app/App.tsx`: auth gating, user sync orchestration, route split between main window and overlay mode.
 - `src/features/main-window/*`: desktop main experience.
 - `src/features/overlay/components/OverlayShell.tsx`: command input + `/execute` SSE consumption + streamed result rendering.
+- Overlay voice activation path:
+  - Uses browser SpeechRecognition to capture transcript.
+  - On stop: reads clipboard and screenshot via preload IPC.
+  - Calls `/router/plan`, then executes returned graph through `/execute/graph`.
 - Electron boundary:
   - `electron/main.ts`: app/window lifecycle and overlay behavior.
-  - `electron/preload.ts`: typed, minimal IPC surface for renderer.
+  - `electron/preload.ts`: typed, minimal IPC surface for renderer (`getClipboardText`, `captureScreenshotBase64`).
 
 ### Security and boundary rules
 - Renderer does not directly access Node APIs; preload mediates capabilities.

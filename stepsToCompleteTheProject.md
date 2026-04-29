@@ -78,7 +78,6 @@ Here is the updated Stage 3 with the corrected voice implementation. Everything 
 | Inference (Vision) | OpenRouter API | Managed API | openai/gpt-4o (image/screenshot analysis) |
 | Embeddings | OpenRouter API (or local CPU fallback) | Managed API | text-embedding-3-small or bge-small-en-v1.5 embeddings |
 | Vector + Memory DB | ChromaDB | EC2 + EBS | Semantic search, embeddings storage, similarity matching |
-| Metadata + Cache + State | SQLite + Redis | Local file + ElastiCache | Skills/session metadata in SQLite + response dedup/caching in Redis |
 | Storage / Backup | AWS S3 | Object Storage | Backups for ChromaDB snapshots and MongoDB exports |
 
 Below is your **updated architecture + Stage 5 replacement**, aligned with your new **3B / 7B / VL / small embedding + single-instance strategy**.

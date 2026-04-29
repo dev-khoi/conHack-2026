@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, clipboard, desktopCapturer, globalShortcut, ipcMain, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -160,6 +160,21 @@ app.whenReady().then(() => {
   ipcMain.handle('overlay:set-panel', (_event, panelState: OverlayPanelState) => {
     if (!overlayWin) return
     setOverlayBounds(panelState)
+  })
+
+  ipcMain.handle('overlay:get-clipboard-text', () => {
+    return clipboard.readText()
+  })
+
+  ipcMain.handle('overlay:capture-screenshot', async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1280, height: 720 },
+      fetchWindowIcons: false,
+    })
+    if (!sources.length) return null
+    const png = sources[0].thumbnail.toPNG()
+    return png.toString('base64')
   })
 })
 

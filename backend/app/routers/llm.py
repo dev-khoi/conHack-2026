@@ -63,6 +63,18 @@ class EmbeddingResponse(BaseModel):
     vector: list[float]
 
 
+class AnalyzeImageRequest(BaseModel):
+    image_base64: str = Field(min_length=1)
+    prompt: str = Field(
+        default='Describe this image briefly and accurately.', min_length=1
+    )
+
+
+class AnalyzeImageResponse(BaseModel):
+    endpoint: str
+    text: str
+
+
 _client = OpenRouterClient.from_env()
 
 
@@ -135,3 +147,23 @@ def embedding(req: EmbeddingRequest):
     endpoint = DEFAULT_ENDPOINTS.embedding_inference
     vector = client.embed(endpoint_name=endpoint, text=req.text)
     return EmbeddingResponse(endpoint=endpoint, vector=vector)
+
+
+@router.post('/analyze-image', response_model=AnalyzeImageResponse)
+def analyze_image(req: AnalyzeImageRequest):
+    client = _require_client()
+    endpoint = DEFAULT_ENDPOINTS.vision_inference
+
+    raw = req.image_base64.strip()
+    if raw.startswith('data:'):
+        raw = raw.split(',', 1)[-1]
+
+    import base64
+
+    try:
+        image_bytes = base64.b64decode(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid base64 image payload.') from exc
+
+    text = client.invoke_vision(endpoint_name=endpoint, prompt=req.prompt, image_bytes=image_bytes)
+    return AnalyzeImageResponse(endpoint=endpoint, text=text)

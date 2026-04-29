@@ -15,4 +15,10 @@ contextBridge.exposeInMainWorld('overlay', {
   setPanelState(panelState: OverlayPanelState) {
     return ipcRenderer.invoke('overlay:set-panel', panelState)
   },
+  getClipboardText() {
+    return ipcRenderer.invoke('overlay:get-clipboard-text') as Promise<string>
+  },
+  captureScreenshotBase64() {
+    return ipcRenderer.invoke('overlay:capture-screenshot') as Promise<string | null>
+  },
 })
