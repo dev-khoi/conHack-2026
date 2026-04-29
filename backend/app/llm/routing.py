@@ -18,33 +18,33 @@ TaskType = Literal[
 
 @dataclass(frozen=True)
 class LlmEndpoints:
-    qwen_7b_instruct: str
-    qwen_72b_instruct: str
-    qwen_vl_7b_instruct: str
-    embedding_bge_large_en_v15: str
+    fast_inference: str
+    reasoning_inference: str
+    vision_inference: str
+    embedding_inference: str
 
 
 DEFAULT_ENDPOINTS = LlmEndpoints(
-    qwen_7b_instruct='mock-qwen2_5-7b-instruct',
-    qwen_72b_instruct='mock-qwen2_5-72b-instruct',
-    qwen_vl_7b_instruct='mock-qwen2_5-vl-7b-instruct',
-    embedding_bge_large_en_v15='mock-bge-large-en-v1_5',
+    fast_inference='openai/gpt-4o-mini',
+    reasoning_inference='openai/gpt-4o',
+    vision_inference='openai/gpt-4o',
+    embedding_inference='text-embedding-3-small',
 )
 
 
 def endpoint_for_task_type(task_type: TaskType, endpoints: LlmEndpoints = DEFAULT_ENDPOINTS) -> str:
-    """Map task_type -> SageMaker endpoint name.
+    """Map task_type -> OpenRouter model id.
 
-    Stage 5 routing middleware. For now returns mock endpoint names.
+    Stage 5 routing middleware for OpenRouter-only inference.
     """
 
     if task_type in ('summarize', 'rewrite', 'tag_generation', 'explain'):
-        return endpoints.qwen_7b_instruct
+        return endpoints.fast_inference
 
     if task_type in ('skill_compile', 'rag_synthesis', 'complex_explain'):
-        return endpoints.qwen_72b_instruct
+        return endpoints.reasoning_inference
 
     if task_type == 'analyze_image':
-        return endpoints.qwen_vl_7b_instruct
+        return endpoints.vision_inference
 
     raise ValueError(f'Unknown task_type: {task_type}')

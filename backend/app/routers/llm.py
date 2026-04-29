@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.llm.mock_client import MockInferenceClient
+from app.llm.openrouter_client import OpenRouterClient
 from app.llm.routing import DEFAULT_ENDPOINTS, TaskType, endpoint_for_task_type
 from app.llm.structured import StructuredError, structured_with_retries
 
@@ -26,7 +26,6 @@ class GenerateResponse(BaseModel):
     task_type: TaskType
     endpoint: str
     text: str
-    mock: bool = True
 
 
 class StructuredSchema(BaseModel):
@@ -47,14 +46,12 @@ class StructuredSuccessResponse(BaseModel):
     endpoint: str
     data: dict[str, Any]
     attempts: int
-    mock: bool = True
 
 
 class StructuredFailureResponse(BaseModel):
     task_type: TaskType
     endpoint: str
     error: StructuredError
-    mock: bool = True
 
 
 class EmbeddingRequest(BaseModel):
@@ -64,22 +61,31 @@ class EmbeddingRequest(BaseModel):
 class EmbeddingResponse(BaseModel):
     endpoint: str
     vector: list[float]
-    mock: bool = True
 
 
-_client = MockInferenceClient()
+_client = OpenRouterClient.from_env()
+
+
+def _require_client() -> OpenRouterClient:
+    if _client is None:
+        raise HTTPException(
+            status_code=500,
+            detail='OPENROUTER_API_KEY is not configured. Set it in .env and restart backend.',
+        )
+    return _client
 
 
 @router.post('/generate', response_model=GenerateResponse)
 def generate(req: GenerateRequest):
+    client = _require_client()
     endpoint = endpoint_for_task_type(req.task_type, DEFAULT_ENDPOINTS)
 
     if not req.streaming:
-        text = _client.invoke(endpoint_name=endpoint, payload=req.model_dump())
+        text = client.invoke(endpoint_name=endpoint, payload=req.model_dump())
         return GenerateResponse(task_type=req.task_type, endpoint=endpoint, text=text)
 
     async def event_stream() -> AsyncGenerator[str, None]:
-        for delta in _client.invoke_stream(endpoint_name=endpoint, payload=req.model_dump()):
+        for delta in client.invoke_stream(endpoint_name=endpoint, payload=req.model_dump()):
             payload = json.dumps({'type': 'delta', 'delta': delta})
             yield f'data: {payload}\n\n'
         yield 'data: {"type":"done"}\n\n'
@@ -97,38 +103,11 @@ def generate(req: GenerateRequest):
 
 @router.post('/structured', response_model=StructuredSuccessResponse | StructuredFailureResponse)
 def structured(req: StructuredRequest):
-    endpoint = DEFAULT_ENDPOINTS.qwen_72b_instruct
-
-    def invoke_for_structured(*, endpoint_name: str, payload: dict) -> str:
-        prompt = str(payload.get('prompt', ''))
-
-        # Simulate repair: if the retry prompt is used, return valid JSON.
-        if 'You MUST return JSON only' in prompt or 'Validation errors to fix' in prompt:
-            data: dict[str, Any] = {}
-            for k, spec_any in req.output_schema.fields.items():
-                if not isinstance(spec_any, dict):
-                    data[k] = None
-                    continue
-                t = spec_any.get('type')
-                if t == 'string':
-                    data[k] = 'mock'
-                elif t == 'integer':
-                    data[k] = 1
-                elif t == 'number':
-                    data[k] = 1.0
-                elif t == 'boolean':
-                    data[k] = True
-                elif t == 'array':
-                    data[k] = []
-                else:
-                    data[k] = {}
-            return json.dumps(data)
-
-        # First attempt returns invalid JSON to exercise retry loop.
-        return '{"not_json": '
+    client = _require_client()
+    endpoint = DEFAULT_ENDPOINTS.reasoning_inference
 
     parsed, err, attempts = structured_with_retries(
-        client_invoke=invoke_for_structured,
+        client_invoke=client.invoke,
         endpoint_name=endpoint,
         prompt=req.prompt,
         schema_name=req.output_schema.name,
@@ -152,6 +131,7 @@ def structured(req: StructuredRequest):
 
 @router.post('/embedding', response_model=EmbeddingResponse)
 def embedding(req: EmbeddingRequest):
-    endpoint = DEFAULT_ENDPOINTS.embedding_bge_large_en_v15
-    vector = _client.embed(endpoint_name=endpoint, text=req.text)
+    client = _require_client()
+    endpoint = DEFAULT_ENDPOINTS.embedding_inference
+    vector = client.embed(endpoint_name=endpoint, text=req.text)
     return EmbeddingResponse(endpoint=endpoint, vector=vector)

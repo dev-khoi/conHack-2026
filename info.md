@@ -206,19 +206,18 @@
     Pydantic validation runs — passes on first attempt
     Skill saved to SQLite
     Overlay confirms: "Skill saved — will activate automatically on code clipboard captures"
-    
-Component | Service | Purpose
-Component	Service	Purpose
-Fast inference	SageMaker ml.g5.xlarge	Qwen2.5-3B-Instruct (fast tasks: summarize, rewrite, tag, explain)
-Reasoning inference	SageMaker ml.g5.xlarge	Qwen2.5-7B-Instruct (skill compile, RAG synthesis, complex explain)
-Vision inference	SageMaker ml.g5.xlarge	Qwen2.5-VL-7B-Instruct (image/screenshot understanding)
-Embeddings	EC2 t3.large (CPU)	bge-small-en-v1.5
-Backend	EC2 t3.large	FastAPI orchestration + execution engine
-Cache	ElastiCache Redis	LLM response caching + dedup
-Vector DB	ChromaDB (EC2/EBS)	RAG storage + similarity search
-Metadata	SQLite	Skills, sessions, memory index
-Backups	S3	Periodic snapshots (Chroma + SQLite)
 
+| Component           | Service                                    | Purpose                                                                                          |
+| ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Fast inference      | OpenRouter API                             | `openai/gpt-4o-mini` (fast tasks: summarize, rewrite, tag, explain)                              |
+| Reasoning inference | OpenRouter API                             | `openai/gpt-4o` or `anthropic/claude-3.5-sonnet` (skill compile, RAG synthesis, complex explain) |
+| Vision inference    | OpenRouter API                             | `openai/gpt-4o` (image/screenshot understanding)                                                 |
+| Embeddings          | OpenRouter API (or local CPU if preferred) | `text-embedding-3-small` or `bge-small-en-v1.5`                                                  |
+| Backend             | EC2 t3.large                               | FastAPI orchestration + execution engine                                                         |
+| Cache               | ElastiCache Redis                          | LLM response caching + dedup                                                                     |
+| Vector DB           | ChromaDB (EC2/EBS)                         | RAG storage + similarity search                                                                  |
+| Metadata            | SQLite                                     | Skills, sessions, memory index                                                                   |
+| Backups             | S3                                         | Periodic snapshots (Chroma + SQLite)                                                             |
 
     Tech stack
     LayerTechnologyDesktop clientElectron + React + TailwindCSSGlobal shortcutElectron globalShortcut APIVoice captureWeb Audio API → faster-whisper (CPU)Backend frameworkFastAPI (Python, async)LLM inference servervLLM on GPU EC2Fast modelMistral-7B-Instruct-v0.2 (summarize, rewrite, tag, explain)Reasoning modelMixtral-8x7B-Instruct-v0.1 (skill compile, RAG synthesis)Vision modelLLaVA-1.6 (image analysis)Embedding modelBAAI/bge-large-en-v1.5Image generationStability AI APIStructured output enforcementPydantic + retry loop + auto-repair promptModel routerLightweight Python middleware on CPU EC2Skill compilerTwo-stage planner + compiler via /llm/structuredExecution engineCustom async Python runner with SSE streamingRAG ingestionLangChain + bge-large embeddings + ChromaDBPassive similarityLangChain embeddings + Chroma cosine searchActive recallLangChain MultiQueryRetriever + RetrievalQAVector storeChromaDB (persisted to disk)Skills + metadataSQLiteCacheRedis (ElastiCache)HostingAWS EC2 (GPU + CPU instances)BackupAWS S3

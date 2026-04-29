@@ -6,18 +6,18 @@ from app.llm.routing import DEFAULT_ENDPOINTS, endpoint_for_task_type
 
 
 class TestLlmRouting(unittest.TestCase):
-    def test_routes_to_7b(self) -> None:
+    def test_routes_to_fast_model(self) -> None:
         for t in ('summarize', 'rewrite', 'tag_generation', 'explain'):
             with self.subTest(task_type=t):
-                self.assertEqual(endpoint_for_task_type(t), DEFAULT_ENDPOINTS.qwen_7b_instruct)
+                self.assertEqual(endpoint_for_task_type(t), DEFAULT_ENDPOINTS.fast_inference)
 
-    def test_routes_to_72b(self) -> None:
+    def test_routes_to_reasoning_model(self) -> None:
         for t in ('skill_compile', 'rag_synthesis', 'complex_explain'):
             with self.subTest(task_type=t):
-                self.assertEqual(endpoint_for_task_type(t), DEFAULT_ENDPOINTS.qwen_72b_instruct)
+                self.assertEqual(endpoint_for_task_type(t), DEFAULT_ENDPOINTS.reasoning_inference)
 
-    def test_routes_to_vl(self) -> None:
-        self.assertEqual(endpoint_for_task_type('analyze_image'), DEFAULT_ENDPOINTS.qwen_vl_7b_instruct)
+    def test_routes_to_vision_model(self) -> None:
+        self.assertEqual(endpoint_for_task_type('analyze_image'), DEFAULT_ENDPOINTS.vision_inference)
 
 
 if __name__ == '__main__':

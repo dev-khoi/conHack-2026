@@ -73,11 +73,12 @@ Here is the updated Stage 3 with the corrected voice implementation. Everything 
 | --- | --- | --- | --- |
 | Client | Electron App | Windows Desktop | Overlay UI, input capture (voice, clipboard, screenshots), streaming display |
 | API / Orchestration | FastAPI Backend | EC2 (t3.large) | Request routing, skill execution engine, RAG orchestration, system coordination |
-| Inference (Fast + Vision) | SageMaker Endpoint | ml.g5.xlarge | Qwen2.5-7B-Instruct + Qwen2.5-VL-7B-Instruct (summarization, tagging, rewriting, image analysis) |
-| Inference (Reasoning) | SageMaker Endpoint | ml.g5.12xlarge | Qwen2.5-72B-Instruct (skill compilation, RAG synthesis, complex reasoning) |
-| Embeddings | SageMaker Endpoint | ml.m5.xlarge (CPU) | BAAI/bge-large-en-v1.5 for vector embeddings |
+| Inference (Fast) | OpenRouter API | Managed API | openai/gpt-4o-mini (summarization, tagging, rewriting, explain) |
+| Inference (Reasoning) | OpenRouter API | Managed API | openai/gpt-4o or anthropic/claude-3.5-sonnet (skill compilation, RAG synthesis, complex reasoning) |
+| Inference (Vision) | OpenRouter API | Managed API | openai/gpt-4o (image/screenshot analysis) |
+| Embeddings | OpenRouter API (or local CPU fallback) | Managed API | text-embedding-3-small or bge-small-en-v1.5 embeddings |
 | Vector + Memory DB | ChromaDB | EC2 + EBS | Semantic search, embeddings storage, similarity matching |
-| Metadata + Cache + State | MongoDB Atlas | Managed MongoDB | Document metadata, session state, skill registry, lightweight caching layer |
+| Metadata + Cache + State | SQLite + Redis | Local file + ElastiCache | Skills/session metadata in SQLite + response dedup/caching in Redis |
 | Storage / Backup | AWS S3 | Object Storage | Backups for ChromaDB snapshots and MongoDB exports |
 
 Below is your **updated architecture + Stage 5 replacement**, aligned with your new **3B / 7B / VL / small embedding + single-instance strategy**.
@@ -90,53 +91,47 @@ I only changed what is necessary.
 
 ## Component | Service | Purpose
 
-| Component | Service | Purpose |
-| --- | --- | --- |
-| Fast inference | SageMaker ml.g5.xlarge | Qwen2.5-3B-Instruct (fast tasks: summarize, rewrite, tag, explain) |
-| Reasoning inference | SageMaker ml.g5.xlarge | Qwen2.5-7B-Instruct (skill compile, RAG synthesis, complex explain) |
-| Vision inference | SageMaker ml.g5.xlarge | Qwen2.5-VL-7B-Instruct (image/screenshot understanding) |
-| Embeddings | EC2 t3.large (CPU) | bge-small-en-v1.5 |
-| Backend | EC2 t3.large | FastAPI orchestration + execution engine |
-| Cache | ElastiCache Redis | LLM response caching + dedup |
-| Vector DB | ChromaDB (EC2/EBS) | RAG storage + similarity search |
-| Metadata | SQLite | Skills, sessions, memory index |
-| Backups | S3 | Periodic snapshots (Chroma + SQLite) |
+| Component           | Service                                    | Purpose                                                                                          |
+| ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Fast inference      | OpenRouter API                             | `openai/gpt-4o-mini` (fast tasks: summarize, rewrite, tag, explain)                              |
+| Reasoning inference | OpenRouter API                             | `openai/gpt-4o` or `anthropic/claude-3.5-sonnet` (skill compile, RAG synthesis, complex explain) |
+| Vision inference    | OpenRouter API                             | `openai/gpt-4o` (image/screenshot understanding)                                                 |
+| Embeddings          | OpenRouter API (or local CPU if preferred) | `text-embedding-3-small` or `bge-small-en-v1.5`                                                  |
+| Backend             | EC2 t3.large  (dont worry about it)                             | FastAPI orchestration + execution engine                                                         |
+| Cache               | ElastiCache Redis                          | LLM response caching + dedup                                                                     |
+| Vector DB           | ChromaDB (EC2/EBS)                         | RAG storage + similarity search                                                                  |
+| Metadata            | SQLite                                     | Skills, sessions, memory index                                                                   |
+| Backups             | S3                                         | Periodic snapshots (Chroma + SQLite)                                                             |
+
 
 ---
 
 ## Key change summary
-
-- ❌ removed 72B endpoint entirely
-- ❌ removed ml.g5.12xlarge requirement
-- ✔ unified ALL LLMs onto **one g5.xlarge SageMaker endpoint group**
-- ✔ embeddings downgraded to CPU small model
-- ✔ cost reduced by ~10x–30x
+## ⚙️ UPDATED STAGE 5 — LLM INFERENCE LAYER (REVISED FOR OPENCODE + OPENROUTER ONLY)
 
 ---
-
-# ⚙️ UPDATED STAGE 5 — LLM INFERENCE LAYER (REVISED)
 
 ## 31. Model routing middleware (UNCHANGED LOGIC, UPDATED TARGETS)
 
 Build CPU-side router that maps:
 
-- `summarize` → Qwen2.5-3B-Instruct
+* `summarize` → `openai/gpt-4o-mini` via OpenRouter API
 
-- `rewrite` → Qwen2.5-3B-Instruct
+* `rewrite` → `openai/gpt-4o-mini` via OpenRouter API
 
-- `tag_generation` → Qwen2.5-3B-Instruct
+* `tag_generation` → `openai/gpt-4o-mini` via OpenRouter API
 
-- `explain` → Qwen2.5-3B-Instruct
+* `explain` → `openai/gpt-4o-mini` via OpenRouter API
 
-- `skill_compile` → Qwen2.5-7B-Instruct
+* `skill_compile` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
 
-- `rag_synthesis` → Qwen2.5-7B-Instruct
+* `rag_synthesis` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
 
-- `complex_explain` → Qwen2.5-7B-Instruct
+* `complex_explain` → `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API
 
-- `analyze_image` → Qwen2.5-VL-7B-Instruct
+* `analyze_image` → `openai/gpt-4o` via OpenRouter API
 
-All routes call **same SageMaker endpoint family (g5.xlarge)** but different deployed models or internal container routing.
+All routes call **OpenRouter API only (no local or SageMaker inference layer)**.
 
 ---
 
@@ -147,39 +142,45 @@ Define:
 ```text
 FAST PATH:
 summarize, rewrite, tag_generation, explain
-→ Qwen2.5-3B-Instruct
+→ openai/gpt-4o-mini
 
 REASONING PATH:
 skill_compile, rag_synthesis, complex_explain
-→ Qwen2.5-7B-Instruct
+→ openai/gpt-4o or anthropic/claude-3.5-sonnet
 
 VISION PATH:
 analyze_image
-→ Qwen2.5-VL-7B-Instruct
+→ openai/gpt-4o
 ```
+
+(All served via OpenRouter API)
 
 ---
 
 ## 33. `/llm/generate` (UNCHANGED FUNCTION, UPDATED MODEL TARGETS)
 
-- Accepts:
-  - prompt
-  - task_type
-  - streaming flag
+* Accepts:
 
-- Routes to:
-  - correct model inside SageMaker g5.xlarge deployment group
+  * prompt
+  * task_type
+  * streaming flag
 
-- Uses:
-  - `boto3 sagemaker-runtime InvokeEndpoint`
+* Routes to:
+
+  * correct model via OpenRouter API
+
+* Uses:
+
+  * OpenAI-compatible HTTP request (OpenRouter endpoint)
+  * no boto3, no SageMaker runtime
 
 ---
 
 ## 34. Streaming (UNCHANGED)
 
-- SSE streaming remains identical
-- Token forwarding from inference response stream
-- No architectural change needed
+* SSE streaming remains identical
+* Token forwarding depends on OpenRouter streaming support
+* Backend handles chunk relay to client
 
 ---
 
@@ -187,42 +188,43 @@ analyze_image
 
 Now uses:
 
-- Qwen2.5-7B-Instruct ONLY (no 72B required)
+* `openai/gpt-4o` (or `anthropic/claude-3.5-sonnet`) via OpenRouter API ONLY
 
 Reason:
 
-- skill compiler + JSON generation is well within 7B capability
+* structured JSON generation does not require larger model
 
 ---
 
 ## 36. Structured enforcement layer (UNCHANGED)
 
-- Validate via Pydantic
-- Return parsed JSON only
+* Validate via Pydantic
+* Return parsed JSON only
 
 ---
 
 ## 37. Retry logic (UNCHANGED)
 
-- 3 attempts max
-- second pass includes validation errors
-- third pass fallback error object
+* 3 attempts max
+* second pass includes validation errors
+* third pass fallback error object
 
 ---
 
 ## 38. Auto-repair prompt (UNCHANGED LOGIC, SIMPLIFIED)
 
-Now optimized for 7B:
+Now optimized for OpenRouter-hosted models:
 
-- stricter prompt formatting
-- no need for 72B-level reasoning complexity
+* strict JSON-only instruction
+* schema embedded in prompt
+* reduced verbosity for consistency
 
 ---
 
 ## 39. Failure handling (UNCHANGED)
 
-- never return partial JSON
-- always return structured error envelope
+* never return partial JSON
+* always return structured error envelope
 
 ---
 
@@ -230,13 +232,12 @@ Now optimized for 7B:
 
 Now calls:
 
-- `bge-small-en-v1.5`
-- runs on **CPU EC2 (t3.large)**
+* `text-embedding-3-small` via OpenRouter-compatible embedding endpoint (or optional `bge-small-en-v1.5` local CPU fallback)
 
 Returns:
 
-- vector embedding
-- no GPU dependency
+* vector embedding
+* no GPU or SageMaker dependency
 
 ---
 
@@ -244,14 +245,33 @@ Returns:
 
 Still test:
 
-- routing correctness
-- schema validation
-- retry loop stability
+* routing correctness
+* schema validation
+* retry loop stability
 
-But:
+Removed:
 
-- no distributed inference testing anymore
-- no multi-GPU behavior testing needed
+* distributed inference tests
+* GPU endpoint validation tests
+* SageMaker integration tests
+
+---
+
+## FINAL ARCHITECTURAL CHANGE SUMMARY
+
+* ❌ Removed SageMaker completely
+* ❌ Removed all local model hosting assumptions
+* ✔ All LLM calls now go through OpenRouter API
+* ✔ Backend is pure orchestration layer (OpenCode-style architecture)
+* ✔ No infrastructure beyond EC2 + storage services
+
+---
+
+If you want next step, I can convert this into:
+
+* a **clean OpenCode folder structure**
+* or a **LangChain + OpenRouter production router**
+* or a **single-file FastAPI LLM gateway template**
 
 ## Stage 6 — ASR Service
 
