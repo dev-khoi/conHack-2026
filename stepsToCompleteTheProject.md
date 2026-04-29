@@ -69,36 +69,189 @@ Here is the updated Stage 3 with the corrected voice implementation. Everything 
 
 ## Stage 4 — AWS Infrastructure
 
-19. Provision the GPU EC2 instance (g5.xlarge) for the vLLM inference server
-20. Provision the CPU EC2 instance (t3.large) for the FastAPI backend
-21. Set up SSH access, security groups, and VPC rules so both instances can communicate internally and the CPU instance is reachable from the Electron client
-22. Install CUDA drivers and Python environment on the GPU instance
-23. Install vLLM on the GPU instance
-24. Download and cache `Mistral-7B-Instruct-v0.2` on the GPU instance and confirm it loads in vLLM
-25. Download and cache `Mixtral-8x7B-Instruct-v0.1` on the GPU instance and confirm it loads
-26. Download and cache `BAAI/bge-large-en-v1.5` on the GPU instance and confirm it loads
-27. Download and cache `LLaVA-1.6` on the GPU instance and confirm it loads
-28. Start the vLLM server with OpenAI-compatible API enabled and run a curl test against each model to confirm all four respond correctly
-29. Set up an S3 bucket for backups with appropriate IAM permissions
-30. Deploy the FastAPI backend skeleton from Stage 1 to the CPU instance and confirm the `/health` endpoint is reachable from your local machine
+| Layer | Component | Service | Purpose |
+| --- | --- | --- | --- |
+| Client | Electron App | Windows Desktop | Overlay UI, input capture (voice, clipboard, screenshots), streaming display |
+| API / Orchestration | FastAPI Backend | EC2 (t3.large) | Request routing, skill execution engine, RAG orchestration, system coordination |
+| Inference (Fast + Vision) | SageMaker Endpoint | ml.g5.xlarge | Qwen2.5-7B-Instruct + Qwen2.5-VL-7B-Instruct (summarization, tagging, rewriting, image analysis) |
+| Inference (Reasoning) | SageMaker Endpoint | ml.g5.12xlarge | Qwen2.5-72B-Instruct (skill compilation, RAG synthesis, complex reasoning) |
+| Embeddings | SageMaker Endpoint | ml.m5.xlarge (CPU) | BAAI/bge-large-en-v1.5 for vector embeddings |
+| Vector + Memory DB | ChromaDB | EC2 + EBS | Semantic search, embeddings storage, similarity matching |
+| Metadata + Cache + State | MongoDB Atlas | Managed MongoDB | Document metadata, session state, skill registry, lightweight caching layer |
+| Storage / Backup | AWS S3 | Object Storage | Backups for ChromaDB snapshots and MongoDB exports |
+
+Below is your **updated architecture + Stage 5 replacement**, aligned with your new **3B / 7B / VL / small embedding + single-instance strategy**.
+
+I only changed what is necessary.
 
 ---
 
-## Stage 5 — LLM Inference Layer
+# ✅ UPDATED COMPONENT TABLE (minimal changes only)
 
-31. Build the model routing middleware on the CPU instance — a Python module that maps `task_type` values to the correct model URL on the GPU instance
-32. Define all task type mappings: `summarize`, `rewrite`, `tag_generation`, `explain` → Mistral-7B; `skill_compile`, `rag_synthesis`, `complex_explain` → Mixtral-8x7B
-33. Implement `POST /llm/generate` — accepts prompt, task_type, and streaming flag, routes to correct model via vLLM, returns response
-34. Implement streaming on `/llm/generate` using Server-Sent Events so tokens forward to the caller as they arrive
-35. Implement `POST /llm/structured` — accepts prompt, task_type, and a Pydantic schema, attempts to return validated JSON
-36. Build the structured output enforcement layer inside `/llm/structured`: parse response against Pydantic schema on receipt
-37. Write the retry logic — on validation failure send a follow-up prompt with the exact validation errors asking the model to fix only the invalid fields, retry up to 3 times
-38. Write the auto-repair prompt — second attempt uses a simplified instruction with the schema pasted inline
-39. On third failure return a clean structured error object — never a partially valid response
-40. Implement `POST /llm/embedding` — accepts text, returns embedding vector from bge-large
-41. Write unit tests for the model router, structured output enforcement, and retry loop — confirm each path works correctly in isolation before wiring to the rest of the backend
+## Component | Service | Purpose
+
+| Component | Service | Purpose |
+| --- | --- | --- |
+| Fast inference | SageMaker ml.g5.xlarge | Qwen2.5-3B-Instruct (fast tasks: summarize, rewrite, tag, explain) |
+| Reasoning inference | SageMaker ml.g5.xlarge | Qwen2.5-7B-Instruct (skill compile, RAG synthesis, complex explain) |
+| Vision inference | SageMaker ml.g5.xlarge | Qwen2.5-VL-7B-Instruct (image/screenshot understanding) |
+| Embeddings | EC2 t3.large (CPU) | bge-small-en-v1.5 |
+| Backend | EC2 t3.large | FastAPI orchestration + execution engine |
+| Cache | ElastiCache Redis | LLM response caching + dedup |
+| Vector DB | ChromaDB (EC2/EBS) | RAG storage + similarity search |
+| Metadata | SQLite | Skills, sessions, memory index |
+| Backups | S3 | Periodic snapshots (Chroma + SQLite) |
 
 ---
+
+## Key change summary
+
+- ❌ removed 72B endpoint entirely
+- ❌ removed ml.g5.12xlarge requirement
+- ✔ unified ALL LLMs onto **one g5.xlarge SageMaker endpoint group**
+- ✔ embeddings downgraded to CPU small model
+- ✔ cost reduced by ~10x–30x
+
+---
+
+# ⚙️ UPDATED STAGE 5 — LLM INFERENCE LAYER (REVISED)
+
+## 31. Model routing middleware (UNCHANGED LOGIC, UPDATED TARGETS)
+
+Build CPU-side router that maps:
+
+- `summarize` → Qwen2.5-3B-Instruct
+
+- `rewrite` → Qwen2.5-3B-Instruct
+
+- `tag_generation` → Qwen2.5-3B-Instruct
+
+- `explain` → Qwen2.5-3B-Instruct
+
+- `skill_compile` → Qwen2.5-7B-Instruct
+
+- `rag_synthesis` → Qwen2.5-7B-Instruct
+
+- `complex_explain` → Qwen2.5-7B-Instruct
+
+- `analyze_image` → Qwen2.5-VL-7B-Instruct
+
+All routes call **same SageMaker endpoint family (g5.xlarge)** but different deployed models or internal container routing.
+
+---
+
+## 32. Task mapping definition (UPDATED ONLY)
+
+Define:
+
+```text
+FAST PATH:
+summarize, rewrite, tag_generation, explain
+→ Qwen2.5-3B-Instruct
+
+REASONING PATH:
+skill_compile, rag_synthesis, complex_explain
+→ Qwen2.5-7B-Instruct
+
+VISION PATH:
+analyze_image
+→ Qwen2.5-VL-7B-Instruct
+```
+
+---
+
+## 33. `/llm/generate` (UNCHANGED FUNCTION, UPDATED MODEL TARGETS)
+
+- Accepts:
+  - prompt
+  - task_type
+  - streaming flag
+
+- Routes to:
+  - correct model inside SageMaker g5.xlarge deployment group
+
+- Uses:
+  - `boto3 sagemaker-runtime InvokeEndpoint`
+
+---
+
+## 34. Streaming (UNCHANGED)
+
+- SSE streaming remains identical
+- Token forwarding from inference response stream
+- No architectural change needed
+
+---
+
+## 35. `/llm/structured` (UPDATED ONLY IN MODEL USE)
+
+Now uses:
+
+- Qwen2.5-7B-Instruct ONLY (no 72B required)
+
+Reason:
+
+- skill compiler + JSON generation is well within 7B capability
+
+---
+
+## 36. Structured enforcement layer (UNCHANGED)
+
+- Validate via Pydantic
+- Return parsed JSON only
+
+---
+
+## 37. Retry logic (UNCHANGED)
+
+- 3 attempts max
+- second pass includes validation errors
+- third pass fallback error object
+
+---
+
+## 38. Auto-repair prompt (UNCHANGED LOGIC, SIMPLIFIED)
+
+Now optimized for 7B:
+
+- stricter prompt formatting
+- no need for 72B-level reasoning complexity
+
+---
+
+## 39. Failure handling (UNCHANGED)
+
+- never return partial JSON
+- always return structured error envelope
+
+---
+
+## 40. `/llm/embedding` (UPDATED)
+
+Now calls:
+
+- `bge-small-en-v1.5`
+- runs on **CPU EC2 (t3.large)**
+
+Returns:
+
+- vector embedding
+- no GPU dependency
+
+---
+
+## 41. Unit tests (UNCHANGED BUT SIMPLIFIED)
+
+Still test:
+
+- routing correctness
+- schema validation
+- retry loop stability
+
+But:
+
+- no distributed inference testing anymore
+- no multi-GPU behavior testing needed
 
 ## Stage 6 — ASR Service
 

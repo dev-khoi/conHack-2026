@@ -15,4 +15,13 @@ module.exports = {
       { allowConstantExport: true },
     ],
   },
+  overrides: [
+    {
+      files: ['src/components/ui/**/*.{ts,tsx}'],
+      rules: {
+        // shadcn/ui files commonly export helpers (e.g. `buttonVariants`) alongside components.
+        'react-refresh/only-export-components': 'off',
+      },
+    },
+  ],
 }

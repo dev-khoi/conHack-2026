@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import asr, execution_engine, rag_memory, skill_compiler
+from app.routers import asr, execution_engine, llm, rag_memory, skill_compiler
 
 load_dotenv()
 
@@ -39,3 +39,20 @@ app.include_router(asr.router, prefix="/asr", tags=["asr"])
 app.include_router(skill_compiler.router, prefix="/skill", tags=["skill"])
 app.include_router(execution_engine.router, prefix="/execute", tags=["execute"])
 app.include_router(rag_memory.router, prefix="/memory", tags=["memory"])
+app.include_router(llm.router, prefix="/llm", tags=["llm"])
+
+
+def _run() -> None:
+    """Run a local dev server.
+
+    This exists so `python -m app.main` works during development.
+    Prefer `python -m uvicorn app.main:app --reload` when you want auto-reload.
+    """
+
+    import uvicorn
+
+    uvicorn.run('app.main:app', host='127.0.0.1', port=8000, reload=False)
+
+
+if __name__ == '__main__':
+    _run()
