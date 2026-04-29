@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { pickRecordingMimeType } from "@/features/voice/voice-recorder";
+import { Mic, Square } from "lucide-react";
 
 type PanelState = "compact" | "input" | "expanded";
 
@@ -23,6 +24,11 @@ type RouterGraphStep = {
 type RouterPlan = {
   intent: string;
   tool_graph: RouterGraphStep[];
+};
+
+type UploadedScreenshot = {
+  id: string;
+  url: string;
 };
 
 export function OverlayShell() {
@@ -68,10 +74,33 @@ export function OverlayShell() {
       setPanelState("expanded");
 
       try {
+        const sessionId =
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `session-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
         const [clipboardText, screenshotBase64] = await Promise.all([
           window.overlay.getClipboardText(),
           window.overlay.captureScreenshotBase64(),
         ]);
+        let uploadedScreenshot: UploadedScreenshot | null = null;
+        if (screenshotBase64?.trim()) {
+          try {
+            const uploadRes = await fetch(`${backendBaseUrl}/screenshots/upload-base64`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                screenshot_base64: screenshotBase64,
+                source: "overlay",
+                session_id: sessionId,
+              }),
+            });
+            if (uploadRes.ok) {
+              uploadedScreenshot = (await uploadRes.json()) as UploadedScreenshot;
+            }
+          } catch {
+            // Keep the voice flow running even if screenshot upload fails.
+          }
+        }
         setScreenshotCaptured(
           Boolean(screenshotBase64 && screenshotBase64.trim()),
         );
@@ -85,6 +114,9 @@ export function OverlayShell() {
             screenshot_base64: screenshotBase64,
             metadata: {
               source: ["voice", "clipboard", "screen"],
+              screenshot_id: uploadedScreenshot?.id || null,
+              screenshot_url: uploadedScreenshot?.url || null,
+              session_id: sessionId,
             },
           }),
         });
@@ -108,6 +140,9 @@ export function OverlayShell() {
               text,
               clipboard: clipboardText?.trim() ? clipboardText : "",
               screenshot_base64: screenshotBase64 || "",
+              screenshot_url: uploadedScreenshot?.url || "",
+              session_id: sessionId,
+              source_type: "overlay",
             },
           }),
         });
@@ -434,7 +469,23 @@ export function OverlayShell() {
                     isRecording ? stopRecording() : startRecording()
                   }
                   disabled={isRunning}>
-                  {isRecording ? "Stop Voice" : "Voice"}
+                  {isRecording ? (
+                    <>
+                      <Square className="mr-1 h-4 w-4 text-white/80" />
+                      Stop Voice
+                    </>
+                  ) : (
+                    <>
+                      <Mic
+                        className={
+                          isRunning
+                            ? "mr-1 h-4 w-4 text-muted-foreground/50"
+                            : "mr-1 h-4 w-4 text-muted-foreground"
+                        }
+                      />
+                      Voice
+                    </>
+                  )}
                 </Button>
               </div>
               <div className="mt-2 text-xs leading-4 text-muted-foreground">
@@ -505,53 +556,63 @@ export function OverlayShell() {
             </Card>
           </div>
 
-          <div
-            className={
-              "transition-all duration-200 ease-out " +
-              (panelState === "compact"
-                ? "opacity-100 translate-y-0"
-                : "opacity-0 translate-y-1 pointer-events-none h-0 overflow-hidden")
-            }>
-            <Card className="mt-2 border bg-background/50">
-              <CardContent className="space-y-3 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">Voice controls</div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={recordingStatus === "recording" ? "default" : "outline"}>
-                      {recordingStatus}
-                    </Badge>
-                    <Badge variant="outline">Shift+Space</Badge>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => void startRecording()}
-                    disabled={isRunning || isRecording || recordingStatus === "uploading"}
-                  >
-                    Voice
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={() => void stopRecording()}
-                    disabled={!isRecording}
-                  >
-                    Stop & Transcribe
-                  </Button>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Press <span className="font-medium">Shift+Space</span> to toggle recording.
-                </div>
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <div className="text-sm font-medium">Transcript</div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                    {asrText || "No transcript yet. Record then transcribe."}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+           <div
+             className={
+               "transition-all duration-200 ease-out " +
+               (panelState === "compact"
+                 ? "opacity-100 translate-y-0"
+                 : "opacity-0 translate-y-1 pointer-events-none h-0 overflow-hidden")
+             }>
+             <Card className="mt-2 border bg-background/50">
+               <CardContent className="space-y-3 p-3">
+                 <div className="flex items-center gap-2">
+                   <Button
+                     type="button"
+                     size="icon"
+                     onClick={() => void startRecording()}
+                     disabled={isRunning || isRecording || recordingStatus === "uploading"}
+                   >
+                     <Mic
+                       className={
+                         isRunning
+                           ? "h-4 w-4 text-muted-foreground/50"
+                           : "h-4 w-4 text-muted-foreground"
+                       }
+                     />
+                   </Button>
+                   <Separator orientation="vertical" className="h-6" />
+                   <Button
+                     type="button"
+                     size="icon"
+                     variant="destructive"
+                     onClick={() => void stopRecording()}
+                     disabled={!isRecording}
+                   >
+                     <Square className="h-4 w-4 text-white/80" />
+                   </Button>
+                 </div>
+                 <Input
+                   ref={inputRef}
+                   className="h-10 bg-background/40"
+                   placeholder="Ask..."
+                   value={command}
+                   onChange={(e) => setCommand(e.target.value)}
+                   onKeyDown={(e) => {
+                     if (e.key === "Enter") {
+                       e.preventDefault();
+                       void runExecute();
+                     }
+                   }}
+                 />
+                 <div className="rounded-lg border bg-muted/30 p-3">
+                   <div className="text-sm font-medium">Transcript</div>
+                   <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                     {asrText || "No transcript yet. Record then transcribe."}
+                   </p>
+                 </div>
+               </CardContent>
+             </Card>
+           </div>
         </section>
       </Card>
     </div>

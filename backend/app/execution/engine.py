@@ -217,7 +217,9 @@ class SkillRunner:
             return await self._stability_generate_image(prompt=prompt)
 
         if action in {"store", "store_memory"}:
-            return await self._memory_ingest(data=step_input)
+            trigger_output = outputs.get("trigger_output")
+            trigger = trigger_output if isinstance(trigger_output, dict) else None
+            return await self._memory_ingest(data=step_input, trigger=trigger)
 
         if action in {"notify", "notify_user"}:
             await notify({"type": "notify", "payload": step_input})
@@ -308,11 +310,32 @@ class SkillRunner:
             resp.raise_for_status()
             return resp.json()
 
-    async def _memory_ingest(self, *, data: Any) -> dict[str, Any]:
+    async def _memory_ingest(
+        self,
+        *,
+        data: Any,
+        trigger: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         url = f"{self._backend_base_url}/memory/ingest"
+        metadata: dict[str, Any] = {}
+        if trigger:
+            session_id = trigger.get("session_id")
+            screenshot_url = trigger.get("screenshot_url")
+            source_type = trigger.get("source_type")
+            if isinstance(session_id, str) and session_id.strip():
+                metadata["session_id"] = session_id.strip()
+            if isinstance(screenshot_url, str) and screenshot_url.strip():
+                metadata["screenshot_url"] = screenshot_url.strip()
+            if isinstance(source_type, str) and source_type.strip():
+                metadata["source_type"] = source_type.strip()
+
+        payload: dict[str, Any] = {"text": data}
+        if metadata:
+            payload["metadata"] = metadata
+
         async with httpx.AsyncClient(timeout=20.0) as client:
             try:
-                resp = await client.post(url, json={"text": data})
+                resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 return resp.json()
             except httpx.HTTPStatusError as e:

@@ -6,6 +6,7 @@ Repository guide for agentic coding tools operating in this repo.
 - Backend (Python/FastAPI): `backend/app/`
 - Frontend (Electron + Vite + React + Tailwind v4): `frontend/`
 - Frontend UI kit: shadcn/ui configuration in `frontend/components.json`
+- Data stores: MongoDB (operational records) + ChromaDB (embeddings / retrieval)
 
 Do not commit local artifacts: `backend/.venv/`, `**/__pycache__/`, `**/*.pyc`, `frontend/node_modules/`, `frontend/dist/`, `frontend/dist-electron/`.
 

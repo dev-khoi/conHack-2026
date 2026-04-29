@@ -3,6 +3,8 @@ import { useAuth0 } from "@auth0/auth0-react";
 
 import { MainWindow } from "@/features/main-window/components/MainWindow";
 import { OverlayShell } from "@/features/overlay/components/OverlayShell";
+import { Button } from "@/components/ui/button";
+import GradientText from "@/components/GradientText";
 
 type AppTab = "main" | "sessions";
 
@@ -188,9 +190,13 @@ export function App() {
 
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <div className="text-sm font-medium">{user?.name ?? user?.email}</div>
+              <div className="text-sm font-medium">
+                {user?.name ?? user?.email}
+              </div>
               {syncStatus === "error" && syncError ? (
-                <div className="max-w-64 truncate text-xs text-destructive" title={syncError}>
+                <div
+                  className="max-w-64 truncate text-xs text-destructive"
+                  title={syncError}>
                   Sync issue
                 </div>
               ) : null}
@@ -207,14 +213,15 @@ export function App() {
                 U
               </div>
             )}
-            <button
+            <Button
               type="button"
+              variant="destructive"
               onClick={() =>
                 logout({ logoutParams: { returnTo: window.location.origin } })
               }
               className="rounded-md border px-3 py-1.5 text-sm text-muted-foreground transition hover:text-foreground">
               Logout
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -222,12 +229,21 @@ export function App() {
       {activeTab === "main" ? (
         <main className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-3xl items-center justify-center px-6 py-10">
           <div className="w-full rounded-2xl border bg-card p-8 text-center shadow-sm">
-            <h1 className="font-heading text-2xl font-semibold tracking-tight">AURA</h1>
+            <GradientText
+              colors={["#5227FF", "#FF9FFC", "#B497CF"]}
+              animationSpeed={8}
+              showBorder={false}
+              className="custom-class">
+              <h1 className="text-9xl">AURA</h1>
+            </GradientText>
             <p className="mt-3 text-sm text-muted-foreground">
-              Press <span className="font-medium text-foreground">Shift+Space</span> to record.
+              Press{" "}
+              <span className="font-medium text-foreground">Shift+Space</span>{" "}
+              to record.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Open <span className="font-medium text-foreground">Sessions</span> to search and ask AI across your captures.
+              Open <span className="font-medium text-foreground">Sessions</span>{" "}
+              to search and ask AI across your captures.
             </p>
           </div>
         </main>

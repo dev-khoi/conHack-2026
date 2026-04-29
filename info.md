@@ -98,13 +98,13 @@
         {"id": "3", "action": "store", "input": "step_2_output"}
     ]
     }
-    Three pre-built skills ship with the app and are stored in SQLite at deploy time: summarize-and-store, explain-screenshot, rewrite-tone. These require no compiler call and cover 80% of demo scenarios.
+    Three pre-built skills ship with the app and are stored in MONGODB at deploy time: summarize-and-store, explain-screenshot, rewrite-tone. These require no compiler call and cover 80% of demo scenarios.
 
     Module 3 — Execution Engine
     Responsibility: Run skill graphs deterministically, coordinate with the RAG layer, and stream results to the client
     Execution model:
 
-    Loads skill graph from SQLite (pre-built) or receives compiled graph from Module 2
+    Loads skill graph from MONGODB (pre-built) or receives compiled graph from Module 2
     For any incoming document job, fires an async parallel task to the RAG similarity check before the first LLM step begins — so the similarity result is ready by the time execution completes
     Each step calls /llm/generate with the appropriate task_type field, which the model router maps to the correct model
     All calls use streaming via SSE — tokens are forwarded to the Electron client as they arrive, so the overlay feels responsive even for longer completions
@@ -138,7 +138,7 @@
     Embedding: POST to /llm/embedding → BAAI/bge-large-en-v1.5 running on the GPU instance, or optionally run locally on CPU instance for lower latency on small payloads
     Chunks stored in ChromaDB with metadata: source type, timestamp, skill name, session ID, topic tags, auto-generated title
     Summary stored as a single separate document in Chroma for fast surface-level matching
-    Memory title and topic tags written to SQLite for timeline UI
+    Memory title and topic tags written to MONGODB for timeline UI
 
     Passive similarity detection flow:
     Fires in parallel with the execution engine for every incoming document:
@@ -168,7 +168,7 @@
     User copies long article → clipboard monitor detects change
     Overlay surfaces prompt: "Summarize this?"
     User confirms → Electron sends POST /execute with payload and skill summarize-and-store
-    Execution engine loads pre-built skill graph from SQLite
+    Execution engine loads pre-built skill graph from MONGODBBB
     In parallel: async POST to /memory/similarity fires against RAG service
     Step 1: POST /llm/generate task_type summarize → router sends to Mistral-7B → streamed response forwarded to Electron overlay in real time
     Step 2: store action → POST to RAG ingestion endpoint
@@ -204,23 +204,23 @@
     Stage 1 (planner): POST /llm/structured task_type skill_compile → Mixtral-8x7B → high-level plan returned
     Stage 2 (compiler): POST /llm/structured → Mixtral-8x7B, temperature 0 → JSON skill graph generated
     Pydantic validation runs — passes on first attempt
-    Skill saved to SQLite
+    Skill saved to MONGODB
     Overlay confirms: "Skill saved — will activate automatically on code clipboard captures"
 
-| Component           | Service                                    | Purpose                                                                                          |
-| ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Fast inference      | OpenRouter API                             | `openai/gpt-4o-mini` (fast tasks: summarize, rewrite, tag, explain)                              |
-| Reasoning inference | OpenRouter API                             | `openai/gpt-4o` or `anthropic/claude-3.5-sonnet` (skill compile, RAG synthesis, complex explain) |
-| Vision inference    | OpenRouter API                             | `openai/gpt-4o` (image/screenshot understanding)                                                 |
-| Embeddings          | OpenRouter API (or local CPU if preferred) | `text-embedding-3-small` or `bge-small-en-v1.5`                                                  |
-| Backend             | EC2 t3.large                               | FastAPI orchestration + execution engine                                                         |
-| Cache               | ElastiCache Redis                          | LLM response caching + dedup                                                                     |
-| Vector DB           | ChromaDB (EC2/EBS)                         | RAG storage + similarity search                                                                  |
-| Metadata            | SQLite                                     | Skills, sessions, memory index                                                                   |
-| Backups             | S3                                         | Periodic snapshots (Chroma + SQLite)                                                             |
+| Component | Service | Purpose |
+| --- | --- | --- |
+| Fast inference | OpenRouter API | `openai/gpt-4o-mini` (fast tasks: summarize, rewrite, tag, explain) |
+| Reasoning inference | OpenRouter API | `openai/gpt-4o` or `anthropic/claude-3.5-sonnet` (skill compile, RAG synthesis, complex explain) |
+| Vision inference | OpenRouter API | `openai/gpt-4o` (image/screenshot understanding) |
+| Embeddings | OpenRouter API (or local CPU if preferred) | `text-embedding-3-small` or `bge-small-en-v1.5` |
+| Backend | EC2 t3.large | FastAPI orchestration + execution engine |
+| Cache | ElastiCache Redis | LLM response caching + dedup |
+| Vector DB | ChromaDB (EC2/EBS) | RAG storage + similarity search |
+| Metadata | MONGODB | Skills, sessions, memory index |
+| Backups | S3 | Periodic snapshots (Chroma + MONGODB) |
 
     Tech stack
-    LayerTechnologyDesktop clientElectron + React + TailwindCSSGlobal shortcutElectron globalShortcut APIVoice captureWeb Audio API → faster-whisper (CPU)Backend frameworkFastAPI (Python, async)LLM inference servervLLM on GPU EC2Fast modelMistral-7B-Instruct-v0.2 (summarize, rewrite, tag, explain)Reasoning modelMixtral-8x7B-Instruct-v0.1 (skill compile, RAG synthesis)Vision modelLLaVA-1.6 (image analysis)Embedding modelBAAI/bge-large-en-v1.5Image generationStability AI APIStructured output enforcementPydantic + retry loop + auto-repair promptModel routerLightweight Python middleware on CPU EC2Skill compilerTwo-stage planner + compiler via /llm/structuredExecution engineCustom async Python runner with SSE streamingRAG ingestionLangChain + bge-large embeddings + ChromaDBPassive similarityLangChain embeddings + Chroma cosine searchActive recallLangChain MultiQueryRetriever + RetrievalQAVector storeChromaDB (persisted to disk)Skills + metadataSQLiteCacheRedis (ElastiCache)HostingAWS EC2 (GPU + CPU instances)BackupAWS S3
+    LayerTechnologyDesktop clientElectron + React + TailwindCSSGlobal shortcutElectron globalShortcut APIVoice captureWeb Audio API → faster-whisper (CPU)Backend frameworkFastAPI (Python, async)LLM inference servervLLM on GPU EC2Fast modelMistral-7B-Instruct-v0.2 (summarize, rewrite, tag, explain)Reasoning modelMixtral-8x7B-Instruct-v0.1 (skill compile, RAG synthesis)Vision modelLLaVA-1.6 (image analysis)Embedding modelBAAI/bge-large-en-v1.5Image generationStability AI APIStructured output enforcementPydantic + retry loop + auto-repair promptModel routerLightweight Python middleware on CPU EC2Skill compilerTwo-stage planner + compiler via /llm/structuredExecution engineCustom async Python runner with SSE streamingRAG ingestionLangChain + bge-large embeddings + ChromaDBPassive similarityLangChain embeddings + Chroma cosine searchActive recallLangChain MultiQueryRetriever + RetrievalQAVector storeChromaDB (persisted to disk)Skills + metadataMONGODBCacheRedis (ElastiCache)HostingAWS EC2 (GPU + CPU instances)BackupAWS S3
 
     Why this architecture is coherent
     Every layer has a single clear owner and a clear reason for its technology choice.

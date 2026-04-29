@@ -15,7 +15,8 @@ from app.database.memory_chroma import (
     summaries_collection,
     upsert_documents,
 )
-from app.database.memory_sqlite import insert_memory_entry, list_memory_entries
+from app.database.memory_mongo import insert_memory_entry, list_memory_entries
+from app.database.mongo import screenshots_collection
 from app.llm.openrouter_client import OpenRouterClient
 from app.llm.routing import DEFAULT_ENDPOINTS
 
@@ -133,6 +134,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
     source_type = str(req.metadata.get("source_type") or "manual")
     skill_name = str(req.metadata.get("skill_name") or "") or None
     session_id = str(req.metadata.get("session_id") or "") or None
+    screenshot_url = str(req.metadata.get("screenshot_url") or "") or None
 
     title = str(req.metadata.get("title") or "").strip() or _generate_title(
         client=client, text=text
@@ -173,6 +175,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
                 "timestamp": created_at,
                 "skill_name": skill_name,
                 "session_id": session_id,
+                "screenshot_url": screenshot_url,
                 "topic_tags": topic_tags,
             }
         )
@@ -212,6 +215,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
             "timestamp": created_at,
             "skill_name": skill_name,
             "session_id": session_id,
+            "screenshot_url": screenshot_url,
             "topic_tags": topic_tags,
             "kind": "summary",
         }
@@ -235,6 +239,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
         source_type=source_type,
         skill_name=skill_name,
         session_id=session_id,
+        screenshot_url=screenshot_url,
         topic_tags=topic_tags,
     )
 
@@ -439,4 +444,33 @@ def timeline(limit: int = 50, offset: int = 0) -> TimelineResponse:
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     items = list_memory_entries(limit=limit, offset=offset)
+
+    session_ids = sorted(
+        {
+            str(item.get('session_id') or '').strip()
+            for item in items
+            if str(item.get('session_id') or '').strip()
+        }
+    )
+    by_session: dict[str, str] = {}
+    if session_ids:
+        try:
+            docs = list(
+                screenshots_collection()
+                .find({'session_id': {'$in': session_ids}}, {'session_id': 1, 'url': 1, 'created_at': 1})
+                .sort('created_at', -1)
+            )
+            for d in docs:
+                sid = str(d.get('session_id') or '').strip()
+                url = str(d.get('url') or '').strip()
+                if sid and url and sid not in by_session:
+                    by_session[sid] = url
+        except Exception:
+            by_session = {}
+
+    for item in items:
+        sid = str(item.get('session_id') or '').strip()
+        if sid and sid in by_session:
+            item['screenshot_url'] = by_session[sid]
+
     return TimelineResponse(items=items, limit=limit, offset=offset)

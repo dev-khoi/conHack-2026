@@ -99,8 +99,8 @@ I only changed what is necessary.
 | Backend | EC2 t3.large (dont worry about it) | FastAPI orchestration + execution engine |
 | Cache | ElastiCache Redis | LLM response caching + dedup |
 | Vector DB | ChromaDB (EC2/EBS) | RAG storage + similarity search |
-| Metadata | SQLite | Skills, sessions, memory index |
-| Backups | S3 | Periodic snapshots (Chroma + SQLite) |
+| Metadata | MONGODB | Skills, sessions, memory index |
+| Backups | S3 | Periodic snapshots (Chroma + MONGODB) |
 
 ---
 
@@ -279,7 +279,7 @@ If you want next step, I can convert this into:
 
 ---
 
-Below is your **Stage 7 rewritten with ONLY storage layer changes applied** (SQLite → MongoDB + ChromaDB where appropriate). No logic changes, no structure changes, no prompt changes, no model changes.
+Below is your **Stage 7 rewritten with ONLY storage layer changes applied** (MONGODB → MongoDB + ChromaDB where appropriate). No logic changes, no structure changes, no prompt changes, no model changes.
 
 ---
 
@@ -359,8 +359,8 @@ _(unchanged)_
 
 # ✔ Summary of ONLY changes made
 
-- SQLite → **MongoDB** for skill storage (52–54)
-- SQLite → **MongoDB + ChromaDB** for preloaded skills (55)
+- MONGODB → **MongoDB** for skill storage (52–54)
+- MONGODB → **MongoDB + ChromaDB** for preloaded skills (55)
 - Everything else unchanged exactly as requested
 
 ---
@@ -409,7 +409,6 @@ If you want next step, I can make Stage 8 Execution Engine consistent with:
 
 76. Implement error state rendering in Electron — partial results shown with a clear error indicator rather than a blank panel
 
-
 ## Stage 9 — RAG Memory Service
 
 78. Install LangChain and `langchain-community` on the CPU instance
@@ -420,7 +419,7 @@ If you want next step, I can make Stage 8 Execution Engine consistent with:
 83. Implement embedding inside ingestion — POST to `/llm/embedding` to get vectors from bge-large
 84. Write all chunks to ChromaDB with full metadata: source type, timestamp, skill name, session ID, topic tags, and auto-generated title
 85. Write the summary as a separate single document in ChromaDB for fast surface-level matching
-86. Write memory title and topic tags to SQLite for the timeline UI
+86. Write memory title and topic tags to MONGODB for the timeline UI
 87. Implement `POST /memory/similarity` — accepts raw incoming text, embeds it via `/llm/embedding`, runs cosine similarity search against all stored chunks in Chroma, returns match details if score exceeds 0.82
 88. Implement `POST /memory/recall` — accepts a natural language query
 89. Wire LangChain `MultiQueryRetriever` into recall — generates 3 query variants via Mixtral-8x7B through `/llm/generate`
@@ -428,10 +427,10 @@ If you want next step, I can make Stage 8 Execution Engine consistent with:
 91. Implement deduplication of retrieved chunks before passing to synthesis
 92. Wire LangChain `RetrievalQA` chain into recall — synthesizes answer across deduplicated chunks via Mixtral-8x7B, instructs model to compare documents explicitly when multiple past captures match
 93. Return synthesized answer with full source citations: title, capture date, source type, topic tags
-94. Implement `GET /memory/timeline` — returns paginated memory entries from SQLite ordered by timestamp
+94. Implement `GET /memory/timeline` — returns paginated memory entries from MONGODB ordered by timestamp
 95. Build the memory panel in Electron — fetches timeline from `/memory/timeline`, renders entries as a scrollable list with source tags and topic tags
 96. Build the memory search bar in Electron — sends queries to `/memory/recall`, renders synthesized answer with citations
-97. Set up the S3 backup cron job — runs every 30 minutes, compresses ChromaDB and SQLite, uploads to S3 with a timestamped key
+97. Set up the S3 backup cron job — runs every 30 minutes, compresses ChromaDB and MONGODB, uploads to S3 with a timestamped key
 98. Test ingestion, passive similarity detection, and active recall end to end — confirm match found, no match, and multi-document synthesis all behave correctly
 
 ---
@@ -454,7 +453,7 @@ If you want next step, I can make Stage 8 Execution Engine consistent with:
 ## Stage 11 — Demo Preparation
 
 109. Pre-load 5 semantically related document pairs into ChromaDB so the passive similarity feature fires reliably during the demo without depending on live user captures
-110. Pre-compile and save the three built-in skills to SQLite so they are available instantly at demo time
+110. Pre-compile and save the three built-in skills to MONGODB so they are available instantly at demo time
 111. Write and rehearse the 90-second primary demo script: clipboard capture → streaming summary → related memory card appears → recall query → skill creation
 112. Record a full screen capture of the complete working demo as a fallback in case of live infrastructure failure during the presentation
 113. Deploy final versions of both EC2 instances, confirm all services are running, and lock instance state so no accidental changes can occur before the demo
