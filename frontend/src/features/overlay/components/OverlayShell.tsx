@@ -423,9 +423,9 @@ export function OverlayShell() {
   }, [isRecording, isRunning, recordingStatus, startRecording, stopRecording]);
 
   return (
-    <div className="h-full w-full overflow-hidden">
-      <Card className="overlay-glass relative h-full w-full overflow-hidden bg-card/60 backdrop-blur-xl [-webkit-app-region:no-drag]">
-        <header className="relative flex h-[60px] items-center justify-between px-4 [-webkit-app-region:drag]">
+    <div className="h-content-fit w-full overflow-hidden">
+      <Card className="overlay-glass relative h-content-fit w-full overflow-hidden bg-card/45 backdrop-blur-xl [-webkit-app-region:no-drag]">
+        <header className="relative flex h-[40px] items-center justify-between px-4 [-webkit-app-region:drag]">
           <button
             type="button"
             className="flex  items-center gap-2 [-webkit-app-region:no-drag]"
@@ -541,8 +541,8 @@ export function OverlayShell() {
                 : "opacity-0 -translate-y-1 pointer-events-none h-0 overflow-hidden")
             }>
             <Card className="bg-muted/30">
-              <CardHeader className="pb-1 pt-2">
-                <CardTitle className="text-sm">Result</CardTitle>
+              <CardHeader className=" pt-2">
+                <CardTitle className="text-md">Result</CardTitle>
               </CardHeader>
               <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pt-0 pr-1">
                 {runError ? (
@@ -585,7 +585,9 @@ export function OverlayShell() {
                 <div className="rounded-lg border bg-background/40 p-3">
                   <div className="text-sm font-medium">Result</div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {streamText || "No output yet."}
+                    {(typeof finalResult === "string" && finalResult.trim()
+                      ? finalResult
+                      : streamText) || "No output yet."}
                   </p>
                 </div>
                 {/* {finalResult ? (
