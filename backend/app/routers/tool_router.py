@@ -232,6 +232,11 @@ def _is_clipboard_text_edit_request(voice: str) -> bool:
             "remove semicolons",
             "convert this",
             "format this",
+            "make this",
+            "change this",
+            "edit this",
+            "simplify this",
+            "polish this",
         )
     )
 
@@ -432,6 +437,7 @@ def _build_planner_graph():
         req = state["req"]
         normalized = state["normalized"]
         has_clipboard = bool(_clean_text(req.clipboard))
+        explicit_image_request = _needs_image_for_voice(req.voice)
         llm_decision = _llm_router_decision(normalized, req)
         decision = llm_decision or _deterministic_decision(normalized, req)
 
@@ -469,6 +475,16 @@ def _build_planner_graph():
                 decision.target_tool = "rewrite"
             decision.use_clipboard = True
             decision.needs_image = False
+
+        # Strong default wrapper behavior:
+        # when clipboard exists and user did not explicitly ask for image analysis,
+        # avoid analyze-on-voice fallback and operate on clipboard text instead.
+        if has_clipboard and not explicit_image_request:
+            if decision.target_tool in {"analyze", "explain"}:
+                decision.intent = "rewrite"
+                decision.target_tool = "rewrite"
+                decision.use_clipboard = True
+                decision.needs_image = False
 
         return {"decision": decision}
 
