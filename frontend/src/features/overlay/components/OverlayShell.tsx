@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import GradientText from "@/components/GradientText";
 import { pickRecordingMimeType } from "@/features/voice/voice-recorder";
 import { Mic, Square } from "lucide-react";
 
@@ -192,6 +193,11 @@ export function OverlayShell() {
             if (evt.type === "delta") {
               const delta = typeof evt.delta === "string" ? evt.delta : "";
               if (delta) setStreamText((t) => t + delta);
+            } else if (evt.type === "clipboard_write") {
+              const text = typeof evt.text === "string" ? evt.text : "";
+              if (text.trim()) {
+                await window.overlay.setClipboardText(text);
+              }
             } else if (evt.type === "final") {
               const result = isRecord(evt.result) ? evt.result : null;
               if (result && "final_output" in result)
@@ -407,17 +413,18 @@ export function OverlayShell() {
         <header className="relative flex h-[60px] items-center justify-between px-4 [-webkit-app-region:drag]">
           <button
             type="button"
-            className="flex items-center gap-2 [-webkit-app-region:no-drag]"
+            className="flex  items-center gap-2 [-webkit-app-region:no-drag]"
             onClick={() =>
               setPanelState(panelState === "compact" ? "input" : "compact")
             }>
             <span className="inline-flex h-2.5 w-2.5 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.18)]" />
-            <span className="font-heading text-[14px] font-semibold tracking-tight">
-              AURA
-            </span>
-            <Badge variant="secondary" className="h-5">
-              overlay
-            </Badge>
+            <GradientText
+              colors={["#5227FF", "#FF9FFC", "#B497CF"]}
+              animationSpeed={8}
+              showBorder={false}
+              className="custom-class">
+              <h1 className=" font-semibold text-2xl tracking-tight">AURA</h1>
+            </GradientText>
           </button>
 
           <Badge variant="outline" className="h-6 [-webkit-app-region:no-drag]">
@@ -427,7 +434,7 @@ export function OverlayShell() {
 
         <Separator />
 
-        <section className="relative h-[calc(100%-61px)] overflow-y-auto px-4 pb-4">
+        <section className="relative h-[calc(100%-61px)] px-4 pb-4">
           <div
             className={
               "transition-all duration-200 ease-out " +
@@ -435,12 +442,41 @@ export function OverlayShell() {
                 ? "opacity-0 -translate-y-1 pointer-events-none h-0"
                 : "opacity-100 translate-y-0")
             }>
+            <div className="my-3 flex items-center justify-center gap-3">
+              <Button
+                type="button"
+                size="lg"
+                variant="secondary"
+                onClick={() => void startRecording()}
+                disabled={
+                  isRunning || isRecording || recordingStatus === "uploading"
+                }>
+                <Mic
+                  className={
+                    isRunning
+                      ? "mr-1 h-4 w-4 text-muted-foreground/50"
+                      : "mr-1 h-4 w-4 text-muted-foreground"
+                  }
+                />
+                Record
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                variant="destructive"
+                onClick={() => void stopRecording()}
+                disabled={!isRecording}>
+                <Square className="mr-1 h-4 w-4 text-white/80" />
+                Stop
+              </Button>
+            </div>
+
             <div className="pb-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center gap-2">
                 <div className="text-xs font-medium text-muted-foreground">
                   Ask
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 ">
                   <Input
                     ref={inputRef}
                     className="h-10 bg-background/40"
@@ -469,38 +505,13 @@ export function OverlayShell() {
                   {panelState === "expanded" ? "Collapse" : "Expand"}
                 </Button>
                 <Button
-              
                   size="sm"
                   onClick={() => void runExecute()}
                   disabled={isRunning || !command.trim()}>
                   {isRunning ? "Running..." : "Run"}
                 </Button>
-                <Button
-                  size="sm"
-                  variant={isRecording ? "destructive" : "secondary"}
-                  onClick={() =>
-                    isRecording ? stopRecording() : startRecording()
-                  }
-                  disabled={isRunning}>
-                  {isRecording ? (
-                    <>
-                      <Square className="mr-1 h-4 w-4 text-white/80" />
-                      Stop Voice
-                    </>
-                  ) : (
-                    <>
-                      <Mic
-                        className={
-                          isRunning
-                            ? "mr-1 h-4 w-4 text-muted-foreground/50"
-                            : "mr-1 h-4 w-4 text-muted-foreground"
-                        }
-                      />
-                      Voice
-                    </>
-                  )}
-                </Button>
               </div>
+
               <div className="mt-2 text-xs leading-4 text-muted-foreground">
                 Enter expands. Esc collapses; Esc again hides.
               </div>
@@ -578,10 +589,11 @@ export function OverlayShell() {
             }>
             <Card className="mt-2 border bg-background/50">
               <CardContent className="space-y-3 p-3">
-                <div className="flex items-center gap-2">
+                <div className="my-3 flex items-center justify-center gap-3">
                   <Button
                     type="button"
-                    size="icon"
+                    size="lg"
+                    variant="secondary"
                     onClick={() => void startRecording()}
                     disabled={
                       isRunning ||
@@ -591,19 +603,20 @@ export function OverlayShell() {
                     <Mic
                       className={
                         isRunning
-                          ? "h-4 w-4 text-muted-foreground/50"
-                          : "h-4 w-4 text-muted-foreground"
+                          ? "mr-1 h-4 w-4 text-muted-foreground/50"
+                          : "mr-1 h-4 w-4 text-muted-foreground"
                       }
                     />
+                    Record
                   </Button>
-                  <Separator orientation="vertical" className="h-6" />
                   <Button
                     type="button"
-                    size="icon"
+                    size="lg"
                     variant="destructive"
                     onClick={() => void stopRecording()}
                     disabled={!isRecording}>
-                    <Square className="h-4 w-4 text-white/80" />
+                    <Square className="mr-1 h-4 w-4 text-white/80" />
+                    Stop
                   </Button>
                 </div>
                 <Input

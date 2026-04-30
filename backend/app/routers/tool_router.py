@@ -64,6 +64,7 @@ class RouterDecision(BaseModel):
     target_tool: ToolName
     use_clipboard: bool = False
     needs_image: bool = False
+    copy_to_clipboard: bool = False
     confidence: float = 0.0
 
 
@@ -164,6 +165,40 @@ def _normalize_input(req: PlanInput) -> NormalizedInput:
     )
 
 
+def _is_structure_rewrite_request(voice: str) -> bool:
+    v = voice.lower()
+    if not any(
+        k in v
+        for k in (
+            "rewrite",
+            "reformat",
+            "convert",
+            "transform",
+            "structure",
+            "structured",
+            "json",
+            "yaml",
+            "csv",
+            "table",
+            "schema",
+        )
+    ):
+        return False
+    return any(
+        k in v
+        for k in (
+            "unstructured",
+            "structured",
+            "json",
+            "yaml",
+            "csv",
+            "table",
+            "schema",
+            "format",
+        )
+    )
+
+
 def _router_prompt(normalized: NormalizedInput, req: PlanInput) -> str:
     return (
         "Route this user request to exactly one primary tool. Return strict JSON only.\n"
@@ -172,6 +207,7 @@ def _router_prompt(normalized: NormalizedInput, req: PlanInput) -> str:
         "- Prefer summarize when user asks summary/TLDR.\n"
         "- For summarize/rewrite, if clipboard has meaningful text, set use_clipboard=true.\n"
         "- Set needs_image=true only if image understanding is required.\n"
+        "- Set copy_to_clipboard=true for rewrite requests that ask for structured output from clipboard content.\n"
         "- If screenshot is missing, needs_image must be false.\n"
         "- intent must be one of: summarize, rewrite, explain, analyze, image_explain, debug.\n"
         "\n"
@@ -222,6 +258,7 @@ def _deterministic_decision(
         target_tool=target_tool,
         use_clipboard=use_clipboard,
         needs_image=needs_image,
+        copy_to_clipboard=False,
         confidence=normalized.confidence,
     )
 
@@ -238,6 +275,7 @@ def _llm_router_decision(
         "target_tool": {"type": "string"},
         "use_clipboard": {"type": "boolean", "optional": True},
         "needs_image": {"type": "boolean", "optional": True},
+        "copy_to_clipboard": {"type": "boolean", "optional": True},
         "confidence": {"type": "number", "optional": True},
     }
     parsed, err, _ = structured_with_retries(
@@ -256,6 +294,7 @@ def _llm_router_decision(
     tool_raw = str(data.get("target_tool") or "").strip().lower()
     use_clipboard = bool(data.get("use_clipboard", False))
     needs_image = bool(data.get("needs_image", False))
+    copy_to_clipboard = bool(data.get("copy_to_clipboard", False))
     confidence = float(
         data.get("confidence", normalized.confidence) or normalized.confidence
     )
@@ -284,11 +323,18 @@ def _llm_router_decision(
     if needs_image and not normalized.has_screenshot:
         return None
 
+    # Hard guardrails: summarization/rewrite should not trigger image analysis.
+    if intent_raw in {"summarize", "rewrite"} and tool_raw == "analyze_image":
+        return None
+    if intent_raw in {"summarize", "rewrite"} and needs_image:
+        return None
+
     return RouterDecision(
         intent=intent_raw,
         target_tool=tool_map[tool_raw],
         use_clipboard=use_clipboard,
         needs_image=needs_image,
+        copy_to_clipboard=copy_to_clipboard,
         confidence=max(0.0, min(1.0, confidence)),
     )
 
@@ -321,6 +367,17 @@ def _build_plan_from_decision(decision: RouterDecision, req: PlanInput) -> PlanR
         )
     )
 
+    if decision.copy_to_clipboard:
+        next_id += 1
+        steps.append(
+            GraphStep(
+                id=str(next_id),
+                tool="notify_user",
+                input=f"step_{next_id - 1}_output",
+                depends_on=[str(next_id - 1)],
+            )
+        )
+
     for s in steps:
         s.input = re.sub(r"\s+", " ", s.input).strip()
 
@@ -345,6 +402,21 @@ def _build_planner_graph():
         normalized = state["normalized"]
         llm_decision = _llm_router_decision(normalized, req)
         decision = llm_decision or _deterministic_decision(normalized, req)
+
+        # Final deterministic override for "summarize/rewrite clipboard" behavior.
+        if normalized.user_intent in {"summarize", "rewrite"}:
+            decision.intent = normalized.user_intent  # type: ignore[assignment]
+            decision.target_tool = normalized.user_intent  # type: ignore[assignment]
+            decision.needs_image = False
+            decision.use_clipboard = bool(_clean_text(req.clipboard))
+
+        if _is_structure_rewrite_request(req.voice):
+            decision.intent = "rewrite"
+            decision.target_tool = "rewrite"
+            decision.use_clipboard = bool(_clean_text(req.clipboard))
+            decision.needs_image = False
+            decision.copy_to_clipboard = True
+
         return {"decision": decision}
 
     def plan_node(state: PlannerState) -> dict[str, Any]:

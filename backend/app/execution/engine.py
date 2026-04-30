@@ -177,6 +177,18 @@ class SkillRunner:
             else:
                 prompt = str(step_input)
 
+            if action == "rewrite":
+                trigger_output = outputs.get("trigger_output")
+                if isinstance(trigger_output, dict):
+                    voice_instruction = str(trigger_output.get("text") or "").strip()
+                    if input_ref == "clipboard" and voice_instruction and prompt:
+                        prompt = (
+                            "Rewrite the CONTENT below according to the USER INSTRUCTION. "
+                            "Return only the rewritten result with no extra commentary.\n\n"
+                            f"USER INSTRUCTION:\n{voice_instruction}\n\n"
+                            f"CONTENT:\n{prompt}"
+                        )
+
             extra: dict[str, Any] = {}
             if action == "rewrite" and isinstance(step_input, dict):
                 tone = step_input.get("tone")
@@ -222,6 +234,8 @@ class SkillRunner:
             return await self._memory_ingest(data=step_input, trigger=trigger)
 
         if action in {"notify", "notify_user"}:
+            if isinstance(step_input, str):
+                await notify({"type": "clipboard_write", "text": step_input})
             await notify({"type": "notify", "payload": step_input})
             return {"status": "sent"}
 

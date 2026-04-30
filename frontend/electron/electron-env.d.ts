@@ -29,6 +29,7 @@ interface Window {
     hide: () => Promise<void>
     setPanelState: (panelState: 'compact' | 'input' | 'expanded') => Promise<void>
     getClipboardText: () => Promise<string>
+    setClipboardText: (text: string) => Promise<void>
     captureScreenshotBase64: () => Promise<string | null>
     onStartRecording: (callback: () => void) => () => void
   }

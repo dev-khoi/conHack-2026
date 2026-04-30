@@ -200,6 +200,10 @@ app.whenReady().then(() => {
     return clipboard.readText();
   });
 
+  ipcMain.handle("overlay:set-clipboard-text", (_event, text: string) => {
+    clipboard.writeText(String(text || ""));
+  });
+
   ipcMain.handle("overlay:capture-screenshot", async () => {
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
