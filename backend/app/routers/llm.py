@@ -68,7 +68,8 @@ class EmbeddingResponse(BaseModel):
 class AnalyzeImageRequest(BaseModel):
     image_base64: str = Field(min_length=1)
     prompt: str = Field(
-        default="Describe this image briefly and accurately.", min_length=1
+        default="Describe this image briefly and accurately. If applicable explain it, for example a dad joke like 'what do you call a shoe made out of a banana? a slipper'",
+        min_length=1,
     )
 
 
@@ -89,7 +90,7 @@ class EditImageResponse(BaseModel):
     endpoint: str
     applied_text: str
     image_base64: str
-    mime_type: str = 'image/png'
+    mime_type: str = "image/png"
 
 
 _client = OpenRouterClient.from_env()
@@ -106,41 +107,49 @@ def _apply_concise_rule(prompt: str) -> str:
 
 def _decode_base64_image(raw: str) -> bytes:
     value = raw.strip()
-    if value.startswith('data:'):
-        value = value.split(',', 1)[-1]
+    if value.startswith("data:"):
+        value = value.split(",", 1)[-1]
     try:
         return base64.b64decode(value)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail='Invalid base64 image payload.') from exc
+        raise HTTPException(
+            status_code=400, detail="Invalid base64 image payload."
+        ) from exc
 
 
 def _extract_overlay_text(client: OpenRouterClient, instruction: str) -> str:
     endpoint = DEFAULT_ENDPOINTS.fast_inference
     prompt = (
-        'Extract only the exact overlay text the user wants on an image. '
-        'Return plain text only, no quotes, max 8 words.\n\n'
-        f'User instruction: {instruction}'
+        "Extract only the exact overlay text the user wants on an image. "
+        "Return plain text only, no quotes, max 8 words.\n\n"
+        f"User instruction: {instruction}"
     )
-    text = client.invoke(endpoint_name=endpoint, payload={'prompt': prompt}).strip()
+    text = client.invoke(endpoint_name=endpoint, payload={"prompt": prompt}).strip()
     text = text.strip('"').strip("'")
     if not text:
-        return 'Going to a hackathon'
+        return "Going to a hackathon"
     return text[:120]
 
 
-def _draw_top_text_overlay(image_bytes: bytes, text: str) -> bytes:
-    with Image.open(io.BytesIO(image_bytes)) as img:
-        canvas = img.convert('RGBA')
+def _resolve_text_position(instruction: str) -> str:
+    v = instruction.lower()
+    if any(k in v for k in ("middle", "center", "centre")):
+        return "middle"
+    return "top"
 
-    draw = ImageDraw.Draw(canvas, 'RGBA')
+
+def _draw_text_overlay(image_bytes: bytes, text: str, *, position: str) -> bytes:
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        canvas = img.convert("RGBA")
+
+    draw = ImageDraw.Draw(canvas, "RGBA")
     width, height = canvas.size
     band_height = max(52, int(height * 0.14))
-    draw.rectangle([(0, 0), (width, band_height)], fill=(0, 0, 0, 150))
 
     font_size = max(20, int(height * 0.06))
     font = ImageFont.load_default()
     try:
-        font = ImageFont.truetype('arial.ttf', font_size)
+        font = ImageFont.truetype("arial.ttf", font_size)
     except Exception:
         pass
 
@@ -148,11 +157,16 @@ def _draw_top_text_overlay(image_bytes: bytes, text: str) -> bytes:
     text_width = right - left
     text_height = bottom - top
     x = max(10, (width - text_width) // 2)
-    y = max(8, (band_height - text_height) // 2)
+    if position == "middle":
+        y = max(8, (height - text_height) // 2)
+    else:
+        y = max(8, (band_height - text_height) // 2)
+
+    # Pure text overlay: no background and no shadow.
     draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
 
     out = io.BytesIO()
-    canvas.convert('RGB').save(out, format='PNG')
+    canvas.convert("RGB").save(out, format="PNG")
     return out.getvalue()
 
 
@@ -261,15 +275,16 @@ def analyze_image(req: AnalyzeImageRequest):
     return AnalyzeImageResponse(endpoint=endpoint, text=text)
 
 
-@router.post('/edit-image-overlay', response_model=EditImageResponse)
+@router.post("/edit-image-overlay", response_model=EditImageResponse)
 def edit_image_overlay(req: EditImageRequest):
     client = _require_client()
     endpoint = DEFAULT_ENDPOINTS.fast_inference
 
     image_bytes = _decode_base64_image(req.image_base64)
     overlay_text = _extract_overlay_text(client, req.instruction)
-    edited = _draw_top_text_overlay(image_bytes, overlay_text)
-    edited_b64 = base64.b64encode(edited).decode('ascii')
+    position = _resolve_text_position(req.instruction)
+    edited = _draw_text_overlay(image_bytes, overlay_text, position=position)
+    edited_b64 = base64.b64encode(edited).decode("ascii")
 
     return EditImageResponse(
         endpoint=endpoint,

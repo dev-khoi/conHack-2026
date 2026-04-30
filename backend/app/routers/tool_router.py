@@ -35,6 +35,7 @@ class PlanInput(BaseModel):
     clipboard: str | None = None
     screenshot_analysis: str | None = None
     screenshot_base64: str | None = None
+    clipboard_image_base64: str | None = None
     metadata: PlanInputMetadata = Field(default_factory=PlanInputMetadata)
 
 
@@ -57,6 +58,7 @@ class NormalizedInput(BaseModel):
     user_intent: str
     confidence: float = 0.0
     has_screenshot: bool = False
+    has_clipboard_image: bool = False
 
 
 class RouterDecision(BaseModel):
@@ -78,6 +80,30 @@ class PlannerState(dict):
 
 def _guess_intent(voice: str, *, has_screen: bool) -> str:
     v = voice.lower()
+    if any(
+        k in v
+        for k in (
+            "add text",
+            "add a text",
+            "add words",
+            "add title",
+            "put this text",
+            "put words",
+            "saying",
+            "caption",
+            "overlay text",
+            "put text",
+            "edit image",
+            "edit screenshot",
+            "text on image",
+            "text on top",
+            "text in the middle",
+            "in the middle of the image",
+            "on top of the image",
+            "hackathon",
+        )
+    ):
+        return "image_edit"
     if any(
         k in v
         for k in (
@@ -121,7 +147,10 @@ def _determine_source(
     has_screenshot = bool(
         _clean_text(req.screenshot_analysis) or _clean_text(req.screenshot_base64)
     )
+    has_clipboard_image = bool(_clean_text(req.clipboard_image_base64))
     if has_clipboard and has_screenshot:
+        return "multimodal"
+    if has_clipboard and has_clipboard_image:
         return "multimodal"
     if has_screenshot:
         return "screenshot"
@@ -142,6 +171,11 @@ def _needs_image_for_voice(voice: str) -> bool:
             "what is in the image",
             "photo",
             "picture",
+            "add text",
+            "overlay",
+            "caption",
+            "edit image",
+            "text on image",
         )
     )
 
@@ -152,6 +186,12 @@ def _is_image_edit_request(voice: str) -> bool:
         k in v
         for k in (
             "add text",
+            "add a text",
+            "add words",
+            "add title",
+            "put this text",
+            "put words",
+            "saying",
             "caption",
             "overlay text",
             "put text",
@@ -160,6 +200,11 @@ def _is_image_edit_request(voice: str) -> bool:
             "banner",
             "title on top",
             "top position",
+            "text on image",
+            "text on top",
+            "text in the middle",
+            "in the middle of the image",
+            "on top of the image",
             "hackathon",
         )
     )
@@ -170,6 +215,7 @@ def _normalize_input(req: PlanInput) -> NormalizedInput:
     clipboard = _clean_text(req.clipboard)
     image_context = _clean_text(req.screenshot_analysis) or None
     has_screenshot = bool(image_context or _clean_text(req.screenshot_base64))
+    has_clipboard_image = bool(_clean_text(req.clipboard_image_base64))
 
     source = _determine_source(req)
     user_intent = _guess_intent(voice, has_screen=has_screenshot)
@@ -197,6 +243,7 @@ def _normalize_input(req: PlanInput) -> NormalizedInput:
         user_intent=user_intent,
         confidence=confidence,
         has_screenshot=has_screenshot,
+        has_clipboard_image=has_clipboard_image,
     )
 
 
@@ -266,10 +313,11 @@ def _is_clipboard_text_edit_request(voice: str) -> bool:
 def _router_prompt(normalized: NormalizedInput, req: PlanInput) -> str:
     return (
         "Route this user request to exactly one primary tool. Return strict JSON only.\n"
-        "Available tools: summarize, rewrite, explain, analyze, analyze_image.\n"
+        "Available tools: summarize, rewrite, explain, analyze, analyze_image, edit_image.\n"
         "Rules:\n"
         "- Prefer summarize when user asks summary/TLDR.\n"
         "- After every tool is done, copy the result to the clipboard, set use_clipboard=true.\n"
+        "- If user asks to add/overlay/caption text on an image, choose edit_image.\n"
         "- Set needs_image=true only if image understanding is required.\n"
         "- If screenshot is missing, needs_image must be false.\n"
         "- intent must be one of: summarize, rewrite, explain, analyze, image_explain, image_edit, debug.\n"
@@ -278,6 +326,7 @@ def _router_prompt(normalized: NormalizedInput, req: PlanInput) -> str:
         f"raw_voice: {req.voice}\n"
         f"has_clipboard: {bool(_clean_text(req.clipboard))}\n"
         f"has_screenshot: {normalized.has_screenshot}\n"
+        f"has_clipboard_image: {normalized.has_clipboard_image}\n"
         f"source: {normalized.source}\n"
         f"heuristic_intent: {normalized.user_intent}"
     )
@@ -291,7 +340,7 @@ def _deterministic_decision(
         "summarize",
         "rewrite",
     }
-    needs_image = intent == "image_explain"
+    needs_image = intent in {"image_explain", "image_edit"}
     target_tool: ToolName
     if intent == "summarize":
         target_tool = "summarize"
@@ -303,10 +352,12 @@ def _deterministic_decision(
         target_tool = "analyze"
     elif intent == "image_explain":
         target_tool = "analyze_image"
+    elif intent == "image_edit":
+        target_tool = "edit_image"
     else:
         target_tool = "explain"
 
-    if needs_image and not normalized.has_screenshot:
+    if needs_image and not (normalized.has_screenshot or normalized.has_clipboard_image):
         needs_image = False
         target_tool = "explain"
         intent = "explain"
@@ -382,7 +433,7 @@ def _llm_router_decision(
     if tool_raw not in tool_map:
         return None
 
-    if needs_image and not normalized.has_screenshot:
+    if needs_image and not (normalized.has_screenshot or normalized.has_clipboard_image):
         return None
 
     # Hard guardrails: summarization/rewrite should not trigger image analysis.
@@ -405,11 +456,14 @@ def _build_plan_from_decision(decision: RouterDecision, req: PlanInput) -> PlanR
     next_id = 1
 
     if decision.needs_image:
+        image_input = "screenshot_base64"
+        if decision.target_tool == "edit_image" and _clean_text(req.clipboard_image_base64):
+            image_input = "clipboard_image_base64"
         steps.append(
             GraphStep(
                 id=str(next_id),
                 tool=decision.target_tool,
-                input="screenshot_base64",
+                input=image_input,
                 depends_on=[],
             )
         )
@@ -450,10 +504,10 @@ def _build_planner_graph():
     def normalize_node(state: PlannerState) -> dict[str, Any]:
         req = state["req"]
         normalized = _normalize_input(req)
-        if _needs_image_for_voice(req.voice) and not normalized.has_screenshot:
+        if _needs_image_for_voice(req.voice) and not (normalized.has_screenshot or normalized.has_clipboard_image):
             raise HTTPException(
                 status_code=400,
-                detail="Image-focused request requires a screenshot, but no screenshot was captured.",
+                detail="Image-focused request requires an image (clipboard image or screenshot), but none was found.",
             )
         return {"normalized": normalized}
 
