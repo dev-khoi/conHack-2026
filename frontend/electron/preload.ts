@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('overlay', {
   setPanelState(panelState: OverlayPanelState) {
     return ipcRenderer.invoke('overlay:set-panel', panelState)
   },
+  movePanelBy(dx: number, dy: number) {
+    return ipcRenderer.invoke('overlay:move-by', dx, dy) as Promise<void>
+  },
   getClipboardText() {
     return ipcRenderer.invoke('overlay:get-clipboard-text') as Promise<string>
   },

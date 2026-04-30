@@ -83,13 +83,14 @@ export function OverlayShell() {
             : `session-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
         const screenshotAllowed =
           localStorage.getItem(screenshotSettingKey) !== "0";
-        const [clipboardText, clipboardImageBase64, screenshotBase64] = await Promise.all([
-          window.overlay.getClipboardText(),
-          window.overlay.getClipboardImageBase64(),
-          screenshotAllowed
-            ? window.overlay.captureScreenshotBase64()
-            : Promise.resolve(null),
-        ]);
+        const [clipboardText, clipboardImageBase64, screenshotBase64] =
+          await Promise.all([
+            window.overlay.getClipboardText(),
+            window.overlay.getClipboardImageBase64(),
+            screenshotAllowed
+              ? window.overlay.captureScreenshotBase64()
+              : Promise.resolve(null),
+          ]);
         let uploadedScreenshot: UploadedScreenshot | null = null;
         if (screenshotBase64?.trim()) {
           try {
@@ -122,10 +123,10 @@ export function OverlayShell() {
           body: JSON.stringify({
             voice: text,
             clipboard: clipboardText?.trim() ? clipboardText : null,
-              screenshot_analysis: null,
-              screenshot_base64: screenshotBase64,
-              clipboard_image_base64: clipboardImageBase64,
-              metadata: {
+            screenshot_analysis: null,
+            screenshot_base64: screenshotBase64,
+            clipboard_image_base64: clipboardImageBase64,
+            metadata: {
               source: ["voice", "clipboard", "screen"],
               screenshot_id: uploadedScreenshot?.id || null,
               screenshot_url: uploadedScreenshot?.url || null,
@@ -540,10 +541,10 @@ export function OverlayShell() {
                 : "opacity-0 -translate-y-1 pointer-events-none h-0 overflow-hidden")
             }>
             <Card className="bg-muted/30">
-              <CardHeader className="py-4">
+              <CardHeader className="pb-1 pt-2">
                 <CardTitle className="text-sm">Result</CardTitle>
               </CardHeader>
-              <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+              <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pt-0 pr-1">
                 {runError ? (
                   <div className="text-sm text-destructive">{runError}</div>
                 ) : null}
@@ -558,18 +559,36 @@ export function OverlayShell() {
                 {planPreview ? (
                   <div className="rounded-lg border bg-background/40 p-3">
                     <div className="text-sm font-medium">Planned Graph</div>
-                    <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
-                      {JSON.stringify(planPreview, null, 2)}
-                    </pre>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {planPreview.intent}
+                    </div>
+                    {planPreview.tool_graph.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {planPreview.tool_graph.map((step, index) => (
+                          <div
+                            key={step.id}
+                            className="rounded-md border bg-background/60 p-2 text-xs text-muted-foreground">
+                            <div className="font-medium text-foreground">
+                              {index + 1}. {step.tool}
+                            </div>
+                            {step.depends_on.length > 0 ? (
+                              <div className="mt-1">
+                                depends on: {step.depends_on.join(", ")}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="rounded-lg border bg-background/40 p-3">
-                  <div className="text-sm font-medium">Stream</div>
+                  <div className="text-sm font-medium">Result</div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {streamText || "No output yet."}
                   </p>
                 </div>
-                {finalResult ? (
+                {/* {finalResult ? (
                   <div className="rounded-lg border bg-background/40 p-3">
                     <div className="text-sm font-medium">Final</div>
                     <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
@@ -578,7 +597,7 @@ export function OverlayShell() {
                         : JSON.stringify(finalResult, null, 2)}
                     </pre>
                   </div>
-                ) : null}
+                ) : null} */}
                 {similarity ? (
                   <div className="rounded-lg border bg-background/40 p-3">
                     <div className="text-sm font-medium">Related memory</div>

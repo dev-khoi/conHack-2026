@@ -47,6 +47,18 @@ const OVERLAY_HEIGHT_BY_STATE: Record<OverlayPanelState, number> = {
   expanded: 920,
 };
 
+function getOverlaySize(workArea: Electron.Rectangle, panelState: OverlayPanelState) {
+  const availableWidth = Math.max(240, workArea.width - OVERLAY_MARGIN * 2);
+  const availableHeight = Math.max(260, workArea.height - OVERLAY_MARGIN * 2);
+  const width = Math.min(OVERLAY_WIDTH, availableWidth, workArea.width);
+  const height = Math.min(
+    OVERLAY_HEIGHT_BY_STATE[panelState],
+    Math.max(320, availableHeight),
+    workArea.height,
+  );
+  return { width, height };
+}
+
 function delay(ms: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
@@ -60,11 +72,7 @@ function setOverlayBounds(panelState: OverlayPanelState) {
   const display = screen.getDisplayMatching(currentBounds);
   const workArea = display.workArea;
 
-  const width = OVERLAY_WIDTH;
-  const height = Math.min(
-    OVERLAY_HEIGHT_BY_STATE[panelState],
-    Math.max(320, workArea.height - OVERLAY_MARGIN * 2),
-  );
+  const { width, height } = getOverlaySize(workArea, panelState);
 
   const minX = workArea.x;
   const maxX = workArea.x + workArea.width - width;
@@ -94,6 +102,30 @@ function moveOverlayBy(dx: number, dy: number) {
   const nextY = Math.min(maxY, Math.max(minY, bounds.y + dy));
 
   overlayWin.setBounds({ ...bounds, x: nextX, y: nextY });
+}
+
+function moveOverlayIfFocused(dx: number, dy: number) {
+  if (!overlayWin) return;
+  if (!overlayWin.isVisible() || !overlayWin.isFocused()) return;
+  moveOverlayBy(dx, dy);
+}
+
+function registerShortcutOrWarn(accelerator: string, handler: () => void) {
+  const ok = globalShortcut.register(accelerator, handler);
+  if (!ok) {
+    console.warn(`[overlay] failed to register shortcut: ${accelerator}`);
+  }
+}
+
+function getArrowDirection(input: Electron.Input): "up" | "down" | "left" | "right" | null {
+  const key = String(input.key || "");
+  const code = String(input.code || "");
+
+  if (key === "ArrowUp" || key === "Up" || code === "ArrowUp") return "up";
+  if (key === "ArrowDown" || key === "Down" || code === "ArrowDown") return "down";
+  if (key === "ArrowLeft" || key === "Left" || code === "ArrowLeft") return "left";
+  if (key === "ArrowRight" || key === "Right" || code === "ArrowRight") return "right";
+  return null;
 }
 
 function toggleOverlay() {
@@ -126,11 +158,16 @@ function createMainWindow() {
 }
 
 function createOverlayWindow() {
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  const workArea = display.workArea;
+  const { width, height } = getOverlaySize(workArea, "compact");
+
   overlayWin = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     show: false,
-    width: OVERLAY_WIDTH,
-    height: OVERLAY_HEIGHT_BY_STATE.compact,
+    width,
+    height,
     resizable: false,
     fullscreenable: false,
     maximizable: false,
@@ -149,14 +186,9 @@ function createOverlayWindow() {
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   // Start at top-right of the active display.
-  const cursor = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(cursor);
-  const workArea = display.workArea;
-  const x = Math.round(
-    workArea.x + workArea.width - OVERLAY_WIDTH - OVERLAY_MARGIN,
-  );
+  const x = Math.round(workArea.x + workArea.width - width - OVERLAY_MARGIN);
   const y = Math.round(workArea.y + OVERLAY_MARGIN);
-  overlayWin.setPosition(x, y);
+  overlayWin.setBounds({ x, y, width, height });
 
   if (VITE_DEV_SERVER_URL) {
     overlayWin.loadURL(`${VITE_DEV_SERVER_URL}#overlay`);
@@ -169,27 +201,30 @@ function createOverlayWindow() {
   overlayWin.webContents.on("before-input-event", (event, input) => {
     if (!overlayWin || !overlayWin.isVisible() || !overlayWin.isFocused()) return;
 
-    if (input.type !== "keyDown") return;
+    if (input.type !== "keyDown" && input.type !== "rawKeyDown") return;
     const usesMoveModifier = process.platform === "darwin" ? input.meta : input.control;
     if (!usesMoveModifier || input.alt || input.shift) return;
 
+    const direction = getArrowDirection(input);
+    if (!direction) return;
+
     const STEP = 24;
-    if (input.key === "ArrowUp") {
+    if (direction === "up") {
       event.preventDefault();
       moveOverlayBy(0, -STEP);
       return;
     }
-    if (input.key === "ArrowDown") {
+    if (direction === "down") {
       event.preventDefault();
       moveOverlayBy(0, STEP);
       return;
     }
-    if (input.key === "ArrowLeft") {
+    if (direction === "left") {
       event.preventDefault();
       moveOverlayBy(-STEP, 0);
       return;
     }
-    if (input.key === "ArrowRight") {
+    if (direction === "right") {
       event.preventDefault();
       moveOverlayBy(STEP, 0);
     }
@@ -222,7 +257,7 @@ app.whenReady().then(() => {
   // globalShortcut.register("CommandOrControl+Shift+Space", () => {
   //   toggleOverlay();
   // });
-  globalShortcut.register("Shift+Space", () => {
+  registerShortcutOrWarn("Shift+Space", () => {
     if (!overlayWin) return;
 
     if (!overlayWin.isVisible()) {
@@ -232,6 +267,22 @@ app.whenReady().then(() => {
 
     // Tell the renderer to toggle recording
     overlayWin.webContents.send("overlay:start-recording");
+  });
+
+  // Fallback movement shortcuts handled in main process.
+  // These still move only when overlay is focused.
+  const MOVE_STEP = 24;
+  registerShortcutOrWarn("CommandOrControl+Up", () => {
+    moveOverlayIfFocused(0, -MOVE_STEP);
+  });
+  registerShortcutOrWarn("CommandOrControl+Down", () => {
+    moveOverlayIfFocused(0, MOVE_STEP);
+  });
+  registerShortcutOrWarn("CommandOrControl+Left", () => {
+    moveOverlayIfFocused(-MOVE_STEP, 0);
+  });
+  registerShortcutOrWarn("CommandOrControl+Right", () => {
+    moveOverlayIfFocused(MOVE_STEP, 0);
   });
 
   ipcMain.handle("overlay:toggle", () => {
@@ -255,6 +306,13 @@ app.whenReady().then(() => {
       setOverlayBounds(panelState);
     },
   );
+
+  ipcMain.handle("overlay:move-by", (_event, dx: number, dy: number) => {
+    if (!overlayWin) return;
+    const deltaX = Number.isFinite(dx) ? Number(dx) : 0;
+    const deltaY = Number.isFinite(dy) ? Number(dy) : 0;
+    moveOverlayBy(deltaX, deltaY);
+  });
 
   ipcMain.handle("overlay:get-clipboard-text", () => {
     return clipboard.readText();
