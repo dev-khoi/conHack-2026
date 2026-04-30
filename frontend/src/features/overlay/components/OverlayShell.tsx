@@ -75,7 +75,8 @@ export function OverlayShell() {
 
       try {
         const sessionId =
-          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          typeof crypto !== "undefined" &&
+          typeof crypto.randomUUID === "function"
             ? crypto.randomUUID()
             : `session-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
         const [clipboardText, screenshotBase64] = await Promise.all([
@@ -85,17 +86,21 @@ export function OverlayShell() {
         let uploadedScreenshot: UploadedScreenshot | null = null;
         if (screenshotBase64?.trim()) {
           try {
-            const uploadRes = await fetch(`${backendBaseUrl}/screenshots/upload-base64`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                screenshot_base64: screenshotBase64,
-                source: "overlay",
-                session_id: sessionId,
-              }),
-            });
+            const uploadRes = await fetch(
+              `${backendBaseUrl}/screenshots/upload-base64`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  screenshot_base64: screenshotBase64,
+                  source: "overlay",
+                  session_id: sessionId,
+                }),
+              },
+            );
             if (uploadRes.ok) {
-              uploadedScreenshot = (await uploadRes.json()) as UploadedScreenshot;
+              uploadedScreenshot =
+                (await uploadRes.json()) as UploadedScreenshot;
             }
           } catch {
             // Keep the voice flow running even if screenshot upload fails.
@@ -242,7 +247,10 @@ export function OverlayShell() {
           method: "POST",
           body: form,
         });
-        const payload = (await res.json()) as { text?: string; detail?: string };
+        const payload = (await res.json()) as {
+          text?: string;
+          detail?: string;
+        };
         if (!res.ok) {
           throw new Error(payload.detail || `HTTP ${res.status}`);
         }
@@ -327,11 +335,15 @@ export function OverlayShell() {
     });
 
     setIsRecording(false);
-    const audioBlob = new Blob(chunksRef.current, { type: blobTypeRef.current });
+    const audioBlob = new Blob(chunksRef.current, {
+      type: blobTypeRef.current,
+    });
     clearRecordingResources();
 
     if (audioBlob.size < 1024) {
-      setRunError("No audio captured. Hold the key a bit longer, then try again.");
+      setRunError(
+        "No audio captured. Hold the key a bit longer, then try again.",
+      );
       setRecordingStatus("idle");
       return;
     }
@@ -408,9 +420,9 @@ export function OverlayShell() {
             </Badge>
           </button>
 
-            <Badge variant="outline" className="h-6 [-webkit-app-region:no-drag]">
-              Shift+Space
-            </Badge>
+          <Badge variant="outline" className="h-6 [-webkit-app-region:no-drag]">
+            Shift+Space
+          </Badge>
         </header>
 
         <Separator />
@@ -457,6 +469,7 @@ export function OverlayShell() {
                   {panelState === "expanded" ? "Collapse" : "Expand"}
                 </Button>
                 <Button
+              
                   size="sm"
                   onClick={() => void runExecute()}
                   disabled={isRunning || !command.trim()}>
@@ -556,63 +569,65 @@ export function OverlayShell() {
             </Card>
           </div>
 
-           <div
-             className={
-               "transition-all duration-200 ease-out " +
-               (panelState === "compact"
-                 ? "opacity-100 translate-y-0"
-                 : "opacity-0 translate-y-1 pointer-events-none h-0 overflow-hidden")
-             }>
-             <Card className="mt-2 border bg-background/50">
-               <CardContent className="space-y-3 p-3">
-                 <div className="flex items-center gap-2">
-                   <Button
-                     type="button"
-                     size="icon"
-                     onClick={() => void startRecording()}
-                     disabled={isRunning || isRecording || recordingStatus === "uploading"}
-                   >
-                     <Mic
-                       className={
-                         isRunning
-                           ? "h-4 w-4 text-muted-foreground/50"
-                           : "h-4 w-4 text-muted-foreground"
-                       }
-                     />
-                   </Button>
-                   <Separator orientation="vertical" className="h-6" />
-                   <Button
-                     type="button"
-                     size="icon"
-                     variant="destructive"
-                     onClick={() => void stopRecording()}
-                     disabled={!isRecording}
-                   >
-                     <Square className="h-4 w-4 text-white/80" />
-                   </Button>
-                 </div>
-                 <Input
-                   ref={inputRef}
-                   className="h-10 bg-background/40"
-                   placeholder="Ask..."
-                   value={command}
-                   onChange={(e) => setCommand(e.target.value)}
-                   onKeyDown={(e) => {
-                     if (e.key === "Enter") {
-                       e.preventDefault();
-                       void runExecute();
-                     }
-                   }}
-                 />
-                 <div className="rounded-lg border bg-muted/30 p-3">
-                   <div className="text-sm font-medium">Transcript</div>
-                   <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                     {asrText || "No transcript yet. Record then transcribe."}
-                   </p>
-                 </div>
-               </CardContent>
-             </Card>
-           </div>
+          <div
+            className={
+              "transition-all duration-200 ease-out " +
+              (panelState === "compact"
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-1 pointer-events-none h-0 overflow-hidden")
+            }>
+            <Card className="mt-2 border bg-background/50">
+              <CardContent className="space-y-3 p-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={() => void startRecording()}
+                    disabled={
+                      isRunning ||
+                      isRecording ||
+                      recordingStatus === "uploading"
+                    }>
+                    <Mic
+                      className={
+                        isRunning
+                          ? "h-4 w-4 text-muted-foreground/50"
+                          : "h-4 w-4 text-muted-foreground"
+                      }
+                    />
+                  </Button>
+                  <Separator orientation="vertical" className="h-6" />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="destructive"
+                    onClick={() => void stopRecording()}
+                    disabled={!isRecording}>
+                    <Square className="h-4 w-4 text-white/80" />
+                  </Button>
+                </div>
+                <Input
+                  ref={inputRef}
+                  className="h-10 bg-background/40"
+                  placeholder="Ask..."
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runExecute();
+                    }
+                  }}
+                />
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-sm font-medium">Transcript</div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {asrText || "No transcript yet. Record then transcribe."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </section>
       </Card>
     </div>

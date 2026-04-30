@@ -40,7 +40,7 @@ type OverlayPanelState = "compact" | "input" | "expanded";
 const OVERLAY_WIDTH = 520;
 const OVERLAY_MARGIN = 20;
 const OVERLAY_HEIGHT_BY_STATE: Record<OverlayPanelState, number> = {
-  compact: 300,
+  compact: 450,
   input: 460,
   expanded: 920,
 };
@@ -76,9 +76,6 @@ function toggleOverlay() {
 }
 
 function createMainWindow() {
-  const win = new BrowserWindow({ width: 800, height: 600 });
-  win.loadFile("index.html");
-
   // Open DevTools automatically
   mainWin = new BrowserWindow({
     icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
