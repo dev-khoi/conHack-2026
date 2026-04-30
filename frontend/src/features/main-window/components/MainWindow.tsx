@@ -1,5 +1,6 @@
 import React from "react";
 
+import Prism from '@/components/Prism';
 import { RagAnswerCard } from "@/features/main-window/components/RagAnswerCard";
 import { useRag } from "@/features/main-window/hooks/useRag";
 import { useTimelineData } from "@/features/main-window/hooks/useTimelineData";
@@ -43,8 +44,21 @@ export function MainWindow({ screenshotEnabled }: MainWindowProps) {
   }, [timeline]);
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex max-w-6xl flex-col gap-20 px-6 py-6">
+    <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
+      <div className="pointer-events-none absolute inset-0 opacity-75">
+        <Prism
+          animationType='rotate'
+          timeScale={0.45}
+          height={3.2}
+          baseWidth={5.3}
+          scale={3.2}
+          hueShift={0}
+          colorFrequency={1}
+          noise={0}
+          glow={0.9}
+        />
+      </div>
+      <div className="relative z-10 mx-auto flex max-w-4xl flex-col gap-20 px-6 py-8">
         <div className="gap-10">
           <RagAnswerCard
             query={query}

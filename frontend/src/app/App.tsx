@@ -11,7 +11,12 @@ type AppTab = 'main' | 'sessions'
 export function App() {
   const isOverlay = window.location.hash === '#overlay'
   const [activeTab, setActiveTab] = React.useState<AppTab>('main')
-  const [screenshotEnabled, setScreenshotEnabled] = React.useState(true)
+  const [screenshotEnabled, setScreenshotEnabled] = React.useState(() => {
+    const raw = localStorage.getItem('aura.screenshotEnabled')
+    if (raw === '0') return false
+    if (raw === '1') return true
+    return true
+  })
 
   React.useEffect(() => {
     document.documentElement.classList.toggle('overlay-mode', isOverlay)

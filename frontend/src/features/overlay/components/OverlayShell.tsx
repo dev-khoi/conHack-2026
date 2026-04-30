@@ -33,6 +33,7 @@ type UploadedScreenshot = {
 };
 
 export function OverlayShell() {
+  const screenshotSettingKey = "aura.screenshotEnabled";
   const [panelState, setPanelState] = React.useState<PanelState>("compact");
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -80,10 +81,14 @@ export function OverlayShell() {
           typeof crypto.randomUUID === "function"
             ? crypto.randomUUID()
             : `session-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+        const screenshotAllowed =
+          localStorage.getItem(screenshotSettingKey) !== "0";
         const [clipboardText, clipboardImageBase64, screenshotBase64] = await Promise.all([
           window.overlay.getClipboardText(),
           window.overlay.getClipboardImageBase64(),
-          window.overlay.captureScreenshotBase64(),
+          screenshotAllowed
+            ? window.overlay.captureScreenshotBase64()
+            : Promise.resolve(null),
         ]);
         let uploadedScreenshot: UploadedScreenshot | null = null;
         if (screenshotBase64?.trim()) {

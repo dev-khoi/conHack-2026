@@ -20,6 +20,7 @@ export function AppShell({
   onScreenshotToggle,
   children,
 }: AppShellProps) {
+  const screenshotSettingKey = "aura.screenshotEnabled";
   const { user, logout } = useAuth0();
   const [isProfileOpen, setIsProfileOpen] = React.useState(false);
   const profileMenuRef = React.useRef<HTMLDivElement | null>(null);
@@ -115,7 +116,10 @@ export function AppShell({
                   </span>
                   <Switch
                     checked={screenshotEnabled}
-                    onCheckedChange={onScreenshotToggle}
+                    onCheckedChange={(enabled) => {
+                      localStorage.setItem(screenshotSettingKey, enabled ? "1" : "0");
+                      onScreenshotToggle(enabled);
+                    }}
                     aria-label="Toggle screenshot capture"
                   />
                 </div>
