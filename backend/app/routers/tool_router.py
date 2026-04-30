@@ -21,6 +21,7 @@ ToolName = Literal[
     "analyze_image",
     "store_memory",
     "notify_user",
+    "copy_to_clipboard",
 ]
 
 
@@ -64,7 +65,6 @@ class RouterDecision(BaseModel):
     target_tool: ToolName
     use_clipboard: bool = False
     needs_image: bool = False
-    copy_to_clipboard: bool = False
     confidence: float = 0.0
 
 
@@ -77,7 +77,20 @@ class PlannerState(dict):
 
 def _guess_intent(voice: str, *, has_screen: bool) -> str:
     v = voice.lower()
-    if any(k in v for k in ("rewrite", "rephrase", "tone")):
+    if any(
+        k in v
+        for k in (
+            "rewrite",
+            "rephrase",
+            "tone",
+            "reformat",
+            "format",
+            "convert",
+            "transform",
+            "remove semicolon",
+            "remove semicolons",
+        )
+    ):
         return "rewrite"
     if any(k in v for k in ("summarize", "summary", "tldr")):
         return "summarize"
@@ -89,10 +102,10 @@ def _guess_intent(voice: str, *, has_screen: bool) -> str:
         return "image_explain"
     if any(k in v for k in ("explain", "what is", "why")):
         return "explain"
-    # Ambiguous fallback preference:
-    # if screen context exists, prefer image-first interpretation.
+    # Do not auto-switch to image intent just because a screenshot exists.
+    # Screenshot should only be used when voice explicitly asks for image/screen analysis.
     if has_screen:
-        return "image_explain"
+        return "analyze"
     return "analyze"
 
 
@@ -199,15 +212,38 @@ def _is_structure_rewrite_request(voice: str) -> bool:
     )
 
 
+def _is_clipboard_text_edit_request(voice: str) -> bool:
+    v = voice.lower()
+    return any(
+        k in v
+        for k in (
+            "trim",
+            "shorten",
+            "condense",
+            "make it one sentence",
+            "one sentence",
+            "summarize this",
+            "rewrite this",
+            "rephrase",
+            "fix grammar",
+            "clean up",
+            "normalize",
+            "remove semicolon",
+            "remove semicolons",
+            "convert this",
+            "format this",
+        )
+    )
+
+
 def _router_prompt(normalized: NormalizedInput, req: PlanInput) -> str:
     return (
         "Route this user request to exactly one primary tool. Return strict JSON only.\n"
         "Available tools: summarize, rewrite, explain, analyze, analyze_image.\n"
         "Rules:\n"
         "- Prefer summarize when user asks summary/TLDR.\n"
-        "- For summarize/rewrite, if clipboard has meaningful text, set use_clipboard=true.\n"
+        "- After every tool is done, copy the result to the clipboard, set use_clipboard=true.\n"
         "- Set needs_image=true only if image understanding is required.\n"
-        "- Set copy_to_clipboard=true for rewrite requests that ask for structured output from clipboard content.\n"
         "- If screenshot is missing, needs_image must be false.\n"
         "- intent must be one of: summarize, rewrite, explain, analyze, image_explain, debug.\n"
         "\n"
@@ -258,7 +294,6 @@ def _deterministic_decision(
         target_tool=target_tool,
         use_clipboard=use_clipboard,
         needs_image=needs_image,
-        copy_to_clipboard=False,
         confidence=normalized.confidence,
     )
 
@@ -275,7 +310,6 @@ def _llm_router_decision(
         "target_tool": {"type": "string"},
         "use_clipboard": {"type": "boolean", "optional": True},
         "needs_image": {"type": "boolean", "optional": True},
-        "copy_to_clipboard": {"type": "boolean", "optional": True},
         "confidence": {"type": "number", "optional": True},
     }
     parsed, err, _ = structured_with_retries(
@@ -294,7 +328,6 @@ def _llm_router_decision(
     tool_raw = str(data.get("target_tool") or "").strip().lower()
     use_clipboard = bool(data.get("use_clipboard", False))
     needs_image = bool(data.get("needs_image", False))
-    copy_to_clipboard = bool(data.get("copy_to_clipboard", False))
     confidence = float(
         data.get("confidence", normalized.confidence) or normalized.confidence
     )
@@ -334,7 +367,6 @@ def _llm_router_decision(
         target_tool=tool_map[tool_raw],
         use_clipboard=use_clipboard,
         needs_image=needs_image,
-        copy_to_clipboard=copy_to_clipboard,
         confidence=max(0.0, min(1.0, confidence)),
     )
 
@@ -352,27 +384,26 @@ def _build_plan_from_decision(decision: RouterDecision, req: PlanInput) -> PlanR
                 depends_on=[],
             )
         )
-        return PlanResponse(intent=decision.intent, tool_graph=steps)
+    else:
+        input_ref = "voice"
+        if decision.use_clipboard and _clean_text(req.clipboard):
+            input_ref = "clipboard"
 
-    input_ref = "voice"
-    if decision.use_clipboard and _clean_text(req.clipboard):
-        input_ref = "clipboard"
-
-    steps.append(
-        GraphStep(
-            id=str(next_id),
-            tool=decision.target_tool,
-            input=input_ref,
-            depends_on=[],
+        steps.append(
+            GraphStep(
+                id=str(next_id),
+                tool=decision.target_tool,
+                input=input_ref,
+                depends_on=[],
+            )
         )
-    )
 
-    if decision.copy_to_clipboard:
+    if not decision.needs_image:
         next_id += 1
         steps.append(
             GraphStep(
                 id=str(next_id),
-                tool="notify_user",
+                tool="copy_to_clipboard",
                 input=f"step_{next_id - 1}_output",
                 depends_on=[str(next_id - 1)],
             )
@@ -400,22 +431,44 @@ def _build_planner_graph():
     def route_node(state: PlannerState) -> dict[str, Any]:
         req = state["req"]
         normalized = state["normalized"]
+        has_clipboard = bool(_clean_text(req.clipboard))
         llm_decision = _llm_router_decision(normalized, req)
         decision = llm_decision or _deterministic_decision(normalized, req)
+
+        # Guardrail: screenshot presence alone must never force image analysis.
+        if decision.target_tool == "analyze_image" and not _needs_image_for_voice(
+            req.voice
+        ):
+            decision = _deterministic_decision(normalized, req)
+            decision.needs_image = False
 
         # Final deterministic override for "summarize/rewrite clipboard" behavior.
         if normalized.user_intent in {"summarize", "rewrite"}:
             decision.intent = normalized.user_intent  # type: ignore[assignment]
             decision.target_tool = normalized.user_intent  # type: ignore[assignment]
             decision.needs_image = False
-            decision.use_clipboard = bool(_clean_text(req.clipboard))
+            decision.use_clipboard = has_clipboard
 
         if _is_structure_rewrite_request(req.voice):
             decision.intent = "rewrite"
             decision.target_tool = "rewrite"
-            decision.use_clipboard = bool(_clean_text(req.clipboard))
+            decision.use_clipboard = has_clipboard
             decision.needs_image = False
-            decision.copy_to_clipboard = True
+
+        # Wrapper behavior: clipboard + edit-style command should transform clipboard text,
+        # then copy result back to clipboard.
+        if has_clipboard and _is_clipboard_text_edit_request(req.voice):
+            if any(
+                k in req.voice.lower()
+                for k in ("summarize", "one sentence", "shorten", "condense", "trim")
+            ):
+                decision.intent = "summarize"
+                decision.target_tool = "summarize"
+            else:
+                decision.intent = "rewrite"
+                decision.target_tool = "rewrite"
+            decision.use_clipboard = True
+            decision.needs_image = False
 
         return {"decision": decision}
 

@@ -233,9 +233,12 @@ class SkillRunner:
             trigger = trigger_output if isinstance(trigger_output, dict) else None
             return await self._memory_ingest(data=step_input, trigger=trigger)
 
+        if action == "copy_to_clipboard":
+            text = str(step_input)
+            await notify({"type": "clipboard_write", "text": text})
+            return {"status": "copied", "chars": len(text)}
+
         if action in {"notify", "notify_user"}:
-            if isinstance(step_input, str):
-                await notify({"type": "clipboard_write", "text": step_input})
             await notify({"type": "notify", "payload": step_input})
             return {"status": "sent"}
 

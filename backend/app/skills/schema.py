@@ -16,6 +16,7 @@ ActionType = Literal[
     'generate_image',
     'store',
     'notify',
+    'copy_to_clipboard',
 ]
 
 
