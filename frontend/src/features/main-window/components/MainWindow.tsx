@@ -5,7 +5,11 @@ import { useRag } from "@/features/main-window/hooks/useRag";
 import { useTimelineData } from "@/features/main-window/hooks/useTimelineData";
 import { useHoldToTalkRecorder } from '@/features/voice/useHoldToTalkRecorder'
 
-export function MainWindow() {
+type MainWindowProps = {
+  screenshotEnabled: boolean
+}
+
+export function MainWindow({ screenshotEnabled }: MainWindowProps) {
   const backendBaseUrl =
     import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8000";
 
@@ -18,7 +22,7 @@ export function MainWindow() {
     citations,
     runAskAi,
     handleSubmit,
-  } = useRag(backendBaseUrl);
+  } = useRag(backendBaseUrl, screenshotEnabled);
 
   const { timeline } = useTimelineData(backendBaseUrl);
 

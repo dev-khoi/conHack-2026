@@ -207,6 +207,12 @@ app.whenReady().then(() => {
     return clipboard.readText();
   });
 
+  ipcMain.handle("overlay:get-clipboard-image-base64", () => {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) return null;
+    return image.toPNG().toString("base64");
+  });
+
   ipcMain.handle("overlay:set-clipboard-text", (_event, text: string) => {
     clipboard.writeText(String(text || ""));
   });

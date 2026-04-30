@@ -80,8 +80,9 @@ export function OverlayShell() {
           typeof crypto.randomUUID === "function"
             ? crypto.randomUUID()
             : `session-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-        const [clipboardText, screenshotBase64] = await Promise.all([
+        const [clipboardText, clipboardImageBase64, screenshotBase64] = await Promise.all([
           window.overlay.getClipboardText(),
+          window.overlay.getClipboardImageBase64(),
           window.overlay.captureScreenshotBase64(),
         ]);
         let uploadedScreenshot: UploadedScreenshot | null = null;
@@ -116,9 +117,10 @@ export function OverlayShell() {
           body: JSON.stringify({
             voice: text,
             clipboard: clipboardText?.trim() ? clipboardText : null,
-            screenshot_analysis: null,
-            screenshot_base64: screenshotBase64,
-            metadata: {
+              screenshot_analysis: null,
+              screenshot_base64: screenshotBase64,
+              clipboard_image_base64: clipboardImageBase64,
+              metadata: {
               source: ["voice", "clipboard", "screen"],
               screenshot_id: uploadedScreenshot?.id || null,
               screenshot_url: uploadedScreenshot?.url || null,
@@ -146,6 +148,7 @@ export function OverlayShell() {
               text,
               clipboard: clipboardText?.trim() ? clipboardText : "",
               screenshot_base64: screenshotBase64 || "",
+              clipboard_image_base64: clipboardImageBase64 || "",
               screenshot_url: uploadedScreenshot?.url || "",
               session_id: sessionId,
               source_type: "overlay",

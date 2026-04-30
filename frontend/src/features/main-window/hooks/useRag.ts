@@ -13,7 +13,7 @@ type UseRagResult = {
   handleSubmit: () => Promise<void>;
 };
 
-export function useRag(backendBaseUrl: string): UseRagResult {
+export function useRag(backendBaseUrl: string, screenshotEnabled: boolean): UseRagResult {
   const [query, setQuery] = React.useState('');
   const [ragLoading, setRagLoading] = React.useState(false);
   const [ragError, setRagError] = React.useState<string | null>(null);
@@ -31,6 +31,25 @@ export function useRag(backendBaseUrl: string): UseRagResult {
       setCitations([]);
 
       try {
+        if (screenshotEnabled) {
+          const screenshotBase64 = (await window.overlay.captureScreenshotBase64()) || '';
+          if (screenshotBase64.trim()) {
+            const sessionId =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `session-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+            await fetch(`${backendBaseUrl}/screenshots/upload-base64`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                screenshot_base64: screenshotBase64,
+                source: 'main_window',
+                session_id: sessionId,
+              }),
+            });
+          }
+        }
+
         const recallRes = await fetch(`${backendBaseUrl}/memory/recall`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -53,7 +72,7 @@ export function useRag(backendBaseUrl: string): UseRagResult {
         setRagLoading(false);
       }
     },
-    [backendBaseUrl],
+    [backendBaseUrl, screenshotEnabled],
   );
 
   const handleSubmit = React.useCallback(async () => {

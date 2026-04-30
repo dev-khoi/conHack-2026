@@ -11,6 +11,7 @@ type AppTab = 'main' | 'sessions'
 export function App() {
   const isOverlay = window.location.hash === '#overlay'
   const [activeTab, setActiveTab] = React.useState<AppTab>('main')
+  const [screenshotEnabled, setScreenshotEnabled] = React.useState(true)
 
   React.useEffect(() => {
     document.documentElement.classList.toggle('overlay-mode', isOverlay)
@@ -22,8 +23,13 @@ export function App() {
 
   return (
     <AuthGate>
-      <AppShell activeTab={activeTab} onTabChange={setActiveTab}>
-        <MainTabs activeTab={activeTab} />
+      <AppShell
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        screenshotEnabled={screenshotEnabled}
+        onScreenshotToggle={setScreenshotEnabled}
+      >
+        <MainTabs activeTab={activeTab} screenshotEnabled={screenshotEnabled} />
       </AppShell>
     </AuthGate>
   )
