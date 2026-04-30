@@ -7,7 +7,7 @@ import { App } from "@/app/App";
 
 const auth0Audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
-document.documentElement.classList.add('dark')
+document.documentElement.classList.add("dark");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -18,7 +18,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         redirect_uri: window.location.origin,
         ...(auth0Audience ? { audience: auth0Audience } : {}),
       }}>
-        
       <App />
     </Auth0Provider>
   </React.StrictMode>,

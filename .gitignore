@@ -25,6 +25,7 @@ dist-ssr/
 dist-electron/
 out/
 release/
+*.timestamp-*.mjs
 
 ## OS / Editor
 .DS_Store
@@ -36,3 +37,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+## Local runtime artifacts
+backend/memory.db
+*.sqlite
+*.sqlite3
