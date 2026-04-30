@@ -27,12 +27,12 @@ class LlmEndpoints:
 
 
 DEFAULT_ENDPOINTS = LlmEndpoints(
-    fast_inference='openai/gpt-4o-mini',
-    reasoning_inference='openai/gpt-4o',
-    vision_inference='openai/gpt-4o',
+    fast_inference='google/gemini-2.5-flash',
+    reasoning_inference='google/gemini-2.5-pro',
+    vision_inference='google/gemini-2.5-flash',
     embedding_inference='BAAI/bge-large-en-v1.5',
-    tag_inference='openai/gpt-4o-mini',
-    rag_inference='openai/gpt-4o',
+    tag_inference='google/gemini-2.5-flash',
+    rag_inference='google/gemini-2.5-flash',
 )
 
 
