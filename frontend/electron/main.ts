@@ -45,6 +45,12 @@ const OVERLAY_HEIGHT_BY_STATE: Record<OverlayPanelState, number> = {
   expanded: 920,
 };
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function setOverlayBounds(panelState: OverlayPanelState) {
   if (!overlayWin) return;
 
@@ -205,14 +211,31 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("overlay:capture-screenshot", async () => {
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: { width: 1280, height: 720 },
-      fetchWindowIcons: false,
-    });
-    if (!sources.length) return null;
-    const png = sources[0].thumbnail.toPNG();
-    return png.toString("base64");
+    const wasVisible = Boolean(overlayWin?.isVisible());
+    const wasFocused = Boolean(overlayWin?.isFocused());
+
+    if (wasVisible) {
+      overlayWin?.hide();
+      await delay(120);
+    }
+
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: { width: 1280, height: 720 },
+        fetchWindowIcons: false,
+      });
+      if (!sources.length) return null;
+      const png = sources[0].thumbnail.toPNG();
+      return png.toString("base64");
+    } finally {
+      if (wasVisible) {
+        overlayWin?.showInactive();
+        if (wasFocused) {
+          overlayWin?.focus();
+        }
+      }
+    }
   });
 });
 
