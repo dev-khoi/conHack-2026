@@ -38,13 +38,13 @@ export function MainTabs({ activeTab, screenshotEnabled }: MainTabsProps) {
               <h1 className="text-9xl">AURA</h1>
             </GradientText>
 
-            <p className="mt-3 text-sm text-muted-foreground">
+            <p className="mt-3 text-base text-muted-foreground">
               Press{" "}
               <span className="font-medium text-foreground">Shift+Space</span>{" "}
               to record.
             </p>
 
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-base text-muted-foreground">
               Open <span className="font-medium text-foreground">Sessions</span>{" "}
               to search and ask AI across your captures.
             </p>

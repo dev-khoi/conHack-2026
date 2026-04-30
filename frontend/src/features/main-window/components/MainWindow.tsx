@@ -58,7 +58,7 @@ export function MainWindow({ screenshotEnabled }: MainWindowProps) {
           glow={0.9}
         />
       </div>
-      <div className="relative z-10 mx-auto flex max-w-4xl flex-col gap-20 px-6 py-8">
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-7rem)] max-w-4xl flex-col justify-center px-6 py-8">
         <div className="gap-10">
           <RagAnswerCard
             query={query}

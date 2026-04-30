@@ -90,7 +90,9 @@ export function AppShell({
             <button
               type="button"
               onClick={() => setIsProfileOpen((open) => !open)}
-              className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={`rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
+                isProfileOpen ? "border-2 border-border/60 bg-muted/40" : ""
+              }`}
               aria-haspopup="menu"
               aria-expanded={isProfileOpen}
               aria-label="Open profile menu">

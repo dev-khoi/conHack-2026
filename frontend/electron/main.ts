@@ -40,6 +40,7 @@ type OverlayPanelState = "compact" | "input" | "expanded";
 
 const OVERLAY_WIDTH = 520;
 const OVERLAY_MARGIN = 20;
+const OVERLAY_MIN_VISIBLE_TOP = 72;
 const OVERLAY_HEIGHT_BY_STATE: Record<OverlayPanelState, number> = {
   compact: 450,
   input: 460,
@@ -55,7 +56,8 @@ function delay(ms: number) {
 function setOverlayBounds(panelState: OverlayPanelState) {
   if (!overlayWin) return;
 
-  const display = screen.getPrimaryDisplay();
+  const currentBounds = overlayWin.getBounds();
+  const display = screen.getDisplayMatching(currentBounds);
   const workArea = display.workArea;
 
   const width = OVERLAY_WIDTH;
@@ -64,12 +66,34 @@ function setOverlayBounds(panelState: OverlayPanelState) {
     Math.max(320, workArea.height - OVERLAY_MARGIN * 2),
   );
 
-  const nextX = Math.round(
-    workArea.x + workArea.width - width - OVERLAY_MARGIN,
-  );
-  const nextY = Math.round(workArea.y + OVERLAY_MARGIN);
+  const minX = workArea.x;
+  const maxX = workArea.x + workArea.width - width;
+  const minY = workArea.y;
+  const maxY = workArea.y + workArea.height - OVERLAY_MIN_VISIBLE_TOP;
+
+  const nextX = Math.min(maxX, Math.max(minX, currentBounds.x));
+  const nextY = Math.min(maxY, Math.max(minY, currentBounds.y));
 
   overlayWin.setBounds({ x: nextX, y: nextY, width, height });
+}
+
+function moveOverlayBy(dx: number, dy: number) {
+  if (!overlayWin) return;
+  if (!overlayWin.isVisible() || !overlayWin.isFocused()) return;
+
+  const bounds = overlayWin.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const workArea = display.workArea;
+
+  const minX = workArea.x;
+  const maxX = workArea.x + workArea.width - bounds.width;
+  const minY = workArea.y;
+  const maxY = workArea.y + workArea.height - OVERLAY_MIN_VISIBLE_TOP;
+
+  const nextX = Math.min(maxX, Math.max(minX, bounds.x + dx));
+  const nextY = Math.min(maxY, Math.max(minY, bounds.y + dy));
+
+  overlayWin.setBounds({ ...bounds, x: nextX, y: nextY });
 }
 
 function toggleOverlay() {
@@ -141,6 +165,35 @@ function createOverlayWindow() {
       hash: "overlay",
     });
   }
+
+  overlayWin.webContents.on("before-input-event", (event, input) => {
+    if (!overlayWin || !overlayWin.isVisible() || !overlayWin.isFocused()) return;
+
+    if (input.type !== "keyDown") return;
+    const usesMoveModifier = process.platform === "darwin" ? input.meta : input.control;
+    if (!usesMoveModifier || input.alt || input.shift) return;
+
+    const STEP = 24;
+    if (input.key === "ArrowUp") {
+      event.preventDefault();
+      moveOverlayBy(0, -STEP);
+      return;
+    }
+    if (input.key === "ArrowDown") {
+      event.preventDefault();
+      moveOverlayBy(0, STEP);
+      return;
+    }
+    if (input.key === "ArrowLeft") {
+      event.preventDefault();
+      moveOverlayBy(-STEP, 0);
+      return;
+    }
+    if (input.key === "ArrowRight") {
+      event.preventDefault();
+      moveOverlayBy(STEP, 0);
+    }
+  });
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
