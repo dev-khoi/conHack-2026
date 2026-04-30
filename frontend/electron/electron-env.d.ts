@@ -30,6 +30,7 @@ interface Window {
     setPanelState: (panelState: 'compact' | 'input' | 'expanded') => Promise<void>
     getClipboardText: () => Promise<string>
     setClipboardText: (text: string) => Promise<void>
+    setClipboardImageBase64: (imageBase64: string) => Promise<void>
     captureScreenshotBase64: () => Promise<string | null>
     onStartRecording: (callback: () => void) => () => void
   }

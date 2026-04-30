@@ -60,6 +60,7 @@ def _graph_to_skill(req: ExecuteGraphRequest) -> SkillGraph:
         'rewrite',
         'analyze',
         'analyze_image',
+        'edit_image',
         'store_memory',
         'notify_user',
         'copy_to_clipboard',

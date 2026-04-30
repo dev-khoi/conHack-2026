@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('overlay', {
   setClipboardText(text: string) {
     return ipcRenderer.invoke('overlay:set-clipboard-text', text) as Promise<void>
   },
+  setClipboardImageBase64(imageBase64: string) {
+    return ipcRenderer.invoke('overlay:set-clipboard-image-base64', imageBase64) as Promise<void>
+  },
   captureScreenshotBase64() {
     return ipcRenderer.invoke('overlay:capture-screenshot') as Promise<string | null>
   },

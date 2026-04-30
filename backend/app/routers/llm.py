@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.llm.openrouter_client import OpenRouterClient
@@ -74,6 +77,21 @@ class AnalyzeImageResponse(BaseModel):
     text: str
 
 
+class EditImageRequest(BaseModel):
+    image_base64: str = Field(min_length=1)
+    instruction: str = Field(
+        default='Add text "Going to a hackathon" on the top area of this image.',
+        min_length=1,
+    )
+
+
+class EditImageResponse(BaseModel):
+    endpoint: str
+    applied_text: str
+    image_base64: str
+    mime_type: str = 'image/png'
+
+
 _client = OpenRouterClient.from_env()
 
 _CONCISE_RULE = (
@@ -84,6 +102,58 @@ _CONCISE_RULE = (
 
 def _apply_concise_rule(prompt: str) -> str:
     return f"{_CONCISE_RULE}\n\n{prompt}"
+
+
+def _decode_base64_image(raw: str) -> bytes:
+    value = raw.strip()
+    if value.startswith('data:'):
+        value = value.split(',', 1)[-1]
+    try:
+        return base64.b64decode(value)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='Invalid base64 image payload.') from exc
+
+
+def _extract_overlay_text(client: OpenRouterClient, instruction: str) -> str:
+    endpoint = DEFAULT_ENDPOINTS.fast_inference
+    prompt = (
+        'Extract only the exact overlay text the user wants on an image. '
+        'Return plain text only, no quotes, max 8 words.\n\n'
+        f'User instruction: {instruction}'
+    )
+    text = client.invoke(endpoint_name=endpoint, payload={'prompt': prompt}).strip()
+    text = text.strip('"').strip("'")
+    if not text:
+        return 'Going to a hackathon'
+    return text[:120]
+
+
+def _draw_top_text_overlay(image_bytes: bytes, text: str) -> bytes:
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        canvas = img.convert('RGBA')
+
+    draw = ImageDraw.Draw(canvas, 'RGBA')
+    width, height = canvas.size
+    band_height = max(52, int(height * 0.14))
+    draw.rectangle([(0, 0), (width, band_height)], fill=(0, 0, 0, 150))
+
+    font_size = max(20, int(height * 0.06))
+    font = ImageFont.load_default()
+    try:
+        font = ImageFont.truetype('arial.ttf', font_size)
+    except Exception:
+        pass
+
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    text_width = right - left
+    text_height = bottom - top
+    x = max(10, (width - text_width) // 2)
+    y = max(8, (band_height - text_height) // 2)
+    draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+
+    out = io.BytesIO()
+    canvas.convert('RGB').save(out, format='PNG')
+    return out.getvalue()
 
 
 def _require_client() -> OpenRouterClient:
@@ -189,3 +259,20 @@ def analyze_image(req: AnalyzeImageRequest):
         image_bytes=image_bytes,
     )
     return AnalyzeImageResponse(endpoint=endpoint, text=text)
+
+
+@router.post('/edit-image-overlay', response_model=EditImageResponse)
+def edit_image_overlay(req: EditImageRequest):
+    client = _require_client()
+    endpoint = DEFAULT_ENDPOINTS.fast_inference
+
+    image_bytes = _decode_base64_image(req.image_base64)
+    overlay_text = _extract_overlay_text(client, req.instruction)
+    edited = _draw_top_text_overlay(image_bytes, overlay_text)
+    edited_b64 = base64.b64encode(edited).decode('ascii')
+
+    return EditImageResponse(
+        endpoint=endpoint,
+        applied_text=overlay_text,
+        image_base64=edited_b64,
+    )

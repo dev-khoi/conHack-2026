@@ -13,6 +13,7 @@ ActionType = Literal[
     'rewrite',
     'tag_generation',
     'analyze_image',
+    'edit_image',
     'generate_image',
     'store',
     'notify',

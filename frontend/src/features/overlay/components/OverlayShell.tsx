@@ -198,6 +198,12 @@ export function OverlayShell() {
               if (text.trim()) {
                 await window.overlay.setClipboardText(text);
               }
+            } else if (evt.type === "clipboard_image_write") {
+              const imageBase64 =
+                typeof evt.image_base64 === "string" ? evt.image_base64 : "";
+              if (imageBase64.trim()) {
+                await window.overlay.setClipboardImageBase64(imageBase64);
+              }
             } else if (evt.type === "final") {
               const result = isRecord(evt.result) ? evt.result : null;
               if (result && "final_output" in result)

@@ -19,6 +19,7 @@ ToolName = Literal[
     "rewrite",
     "analyze",
     "analyze_image",
+    "edit_image",
     "store_memory",
     "notify_user",
     "copy_to_clipboard",
@@ -60,7 +61,7 @@ class NormalizedInput(BaseModel):
 
 class RouterDecision(BaseModel):
     intent: Literal[
-        "summarize", "rewrite", "explain", "analyze", "image_explain", "debug"
+        "summarize", "rewrite", "explain", "analyze", "image_explain", "image_edit", "debug"
     ]
     target_tool: ToolName
     use_clipboard: bool = False
@@ -139,6 +140,27 @@ def _needs_image_for_voice(voice: str) -> bool:
             "screenshot",
             "what is on the image",
             "what is in the image",
+            "photo",
+            "picture",
+        )
+    )
+
+
+def _is_image_edit_request(voice: str) -> bool:
+    v = voice.lower()
+    return any(
+        k in v
+        for k in (
+            "add text",
+            "caption",
+            "overlay text",
+            "put text",
+            "edit image",
+            "edit screenshot",
+            "banner",
+            "title on top",
+            "top position",
+            "hackathon",
         )
     )
 
@@ -250,7 +272,7 @@ def _router_prompt(normalized: NormalizedInput, req: PlanInput) -> str:
         "- After every tool is done, copy the result to the clipboard, set use_clipboard=true.\n"
         "- Set needs_image=true only if image understanding is required.\n"
         "- If screenshot is missing, needs_image must be false.\n"
-        "- intent must be one of: summarize, rewrite, explain, analyze, image_explain, debug.\n"
+        "- intent must be one of: summarize, rewrite, explain, analyze, image_explain, image_edit, debug.\n"
         "\n"
         f"voice: {normalized.text}\n"
         f"raw_voice: {req.voice}\n"
@@ -293,7 +315,7 @@ def _deterministic_decision(
         intent=(
             intent
             if intent
-            in {"summarize", "rewrite", "explain", "analyze", "image_explain", "debug"}
+            in {"summarize", "rewrite", "explain", "analyze", "image_explain", "image_edit", "debug"}
             else "explain"
         ),
         target_tool=target_tool,
@@ -343,6 +365,7 @@ def _llm_router_decision(
         "explain",
         "analyze",
         "image_explain",
+        "image_edit",
         "debug",
     }
     if intent_raw not in allowed_intents:
@@ -354,6 +377,7 @@ def _llm_router_decision(
         "explain": "explain",
         "analyze": "analyze",
         "analyze_image": "analyze_image",
+        "edit_image": "edit_image",
     }
     if tool_raw not in tool_map:
         return None
@@ -384,7 +408,7 @@ def _build_plan_from_decision(decision: RouterDecision, req: PlanInput) -> PlanR
         steps.append(
             GraphStep(
                 id=str(next_id),
-                tool="analyze_image",
+                tool=decision.target_tool,
                 input="screenshot_base64",
                 depends_on=[],
             )
@@ -403,7 +427,7 @@ def _build_plan_from_decision(decision: RouterDecision, req: PlanInput) -> PlanR
             )
         )
 
-    if not decision.needs_image:
+    if not decision.needs_image or decision.target_tool == "edit_image":
         next_id += 1
         steps.append(
             GraphStep(
@@ -442,11 +466,17 @@ def _build_planner_graph():
         decision = llm_decision or _deterministic_decision(normalized, req)
 
         # Guardrail: screenshot presence alone must never force image analysis.
-        if decision.target_tool == "analyze_image" and not _needs_image_for_voice(
+        if decision.target_tool in {"analyze_image", "edit_image"} and not _needs_image_for_voice(
             req.voice
         ):
             decision = _deterministic_decision(normalized, req)
             decision.needs_image = False
+
+        if _is_image_edit_request(req.voice):
+            decision.intent = "image_edit"
+            decision.target_tool = "edit_image"
+            decision.use_clipboard = False
+            decision.needs_image = True
 
         # Final deterministic override for "summarize/rewrite clipboard" behavior.
         if normalized.user_intent in {"summarize", "rewrite"}:
@@ -516,3 +546,16 @@ def plan(req: PlanInput) -> PlanResponse:
             status_code=500, detail="Planner did not produce a valid response."
         )
     return response
+    if any(
+        k in v
+        for k in (
+            "add text",
+            "caption",
+            "overlay text",
+            "put text",
+            "edit image",
+            "edit screenshot",
+            "hackathon",
+        )
+    ):
+        return "image_edit"

@@ -6,6 +6,7 @@ import {
   globalShortcut,
   ipcMain,
   screen,
+  nativeImage,
 } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -208,6 +209,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle("overlay:set-clipboard-text", (_event, text: string) => {
     clipboard.writeText(String(text || ""));
+  });
+
+  ipcMain.handle("overlay:set-clipboard-image-base64", (_event, imageBase64: string) => {
+    const raw = String(imageBase64 || "").trim();
+    const b64 = raw.startsWith("data:") ? raw.split(",", 2)[1] || "" : raw;
+    if (!b64) return;
+    const image = nativeImage.createFromBuffer(Buffer.from(b64, "base64"));
+    clipboard.writeImage(image);
   });
 
   ipcMain.handle("overlay:capture-screenshot", async () => {

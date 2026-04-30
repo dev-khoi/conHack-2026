@@ -224,6 +224,27 @@ class SkillRunner:
 
             return await self._vision_analyze(image_bytes=image_bytes)
 
+        if action == "edit_image":
+            image_b64 = None
+            if isinstance(step_input, dict):
+                image_b64 = step_input.get("image_base64")
+            elif isinstance(step_input, str):
+                image_b64 = step_input
+            if not isinstance(image_b64, str) or not image_b64.strip():
+                raise ValueError("edit_image requires image_base64")
+
+            trigger_output = outputs.get("trigger_output")
+            instruction = "Add text 'Going to a hackathon' on top of this image."
+            if isinstance(trigger_output, dict):
+                voice_instruction = str(trigger_output.get("text") or "").strip()
+                if voice_instruction:
+                    instruction = voice_instruction
+
+            return await self._edit_image_overlay(
+                image_base64=image_b64,
+                instruction=instruction,
+            )
+
         if action == "generate_image":
             prompt = str(step_input)
             return await self._stability_generate_image(prompt=prompt)
@@ -234,6 +255,12 @@ class SkillRunner:
             return await self._memory_ingest(data=step_input, trigger=trigger)
 
         if action == "copy_to_clipboard":
+            if isinstance(step_input, dict):
+                image_b64 = step_input.get("image_base64")
+                if isinstance(image_b64, str) and image_b64.strip():
+                    await notify({"type": "clipboard_image_write", "image_base64": image_b64})
+                    return {"status": "copied_image", "bytes_b64": len(image_b64)}
+
             text = str(step_input)
             await notify({"type": "clipboard_write", "text": text})
             return {"status": "copied", "chars": len(text)}
@@ -326,6 +353,25 @@ class SkillRunner:
             resp = await client.post(url, headers=headers, data=data)
             resp.raise_for_status()
             return resp.json()
+
+    async def _edit_image_overlay(
+        self,
+        *,
+        image_base64: str,
+        instruction: str,
+    ) -> dict[str, Any]:
+        url = f"{self._backend_base_url}/llm/edit-image-overlay"
+        payload = {
+            "image_base64": image_base64,
+            "instruction": instruction,
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict):
+                return data
+            raise RuntimeError("Invalid image edit response")
 
     async def _memory_ingest(
         self,
